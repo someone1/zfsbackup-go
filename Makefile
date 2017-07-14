@@ -31,7 +31,7 @@ vet:
 
 build:
 	go get github.com/mitchellh/gox
-	${GOPATH}bin/gox -ldflags="-w" -osarch=${TARGETS}
+	${GOPATH}bin/gox -ldflags="-w -s" -osarch=${TARGETS}
 
 build-dev:
 	go get github.com/mitchellh/gox

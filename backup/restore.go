@@ -86,6 +86,10 @@ func Receive(jobInfo *helpers.JobInfo) {
 		}
 	}
 
+	manifest.ManifestPrefix = jobInfo.ManifestPrefix
+	manifest.SignKey = jobInfo.SignKey
+	manifest.EncryptKey = jobInfo.EncryptKey
+
 	// Get list of Objects
 	toDownload := make([]string, len(manifest.Volumes))
 	for idx, vol := range manifest.Volumes {
@@ -137,7 +141,6 @@ func Receive(jobInfo *helpers.JobInfo) {
 				defer close(sequence.c)
 				r, rerr := backend.Get(sequence.object)
 				if rerr == nil {
-					defer r.Close()
 					vol, err := helpers.CreateSimpleVolume(ctx, usePipe)
 					if err != nil {
 						helpers.AppLogger.Errorf("Could not create file due to error - %v.", err)
@@ -152,6 +155,7 @@ func Receive(jobInfo *helpers.JobInfo) {
 						helpers.AppLogger.Errorf("Could not download file %s to the local cache dir due to error - %v.", sequence.object, err)
 						panic(helpers.Exit{Code: 206})
 					}
+					r.Close()
 					if !usePipe {
 						vol.Close()
 						sequence.c <- vol
@@ -175,7 +179,7 @@ func Receive(jobInfo *helpers.JobInfo) {
 	var rwg sync.WaitGroup
 	rwg.Add(1)
 	cmd := helpers.GetZFSReceiveCommand(ctx, jobInfo)
-	go receiveStream(ctx, cmd, jobInfo, orderedVolumes, bufferChannel, &rwg)
+	go receiveStream(ctx, cmd, manifest, orderedVolumes, bufferChannel, &rwg)
 
 	// Wait for processes to finish
 	wg.Wait()
@@ -219,9 +223,9 @@ func receiveStream(ctx context.Context, cmd *exec.Cmd, j *helpers.JobInfo, c <-c
 		buf := make([]byte, 1024*1024)
 		for vol := range c {
 			helpers.AppLogger.Debugf("Processing %s.", vol.ObjectName)
-			err := vol.Extract(ctx, j)
-			if err != nil {
-				helpers.AppLogger.Errorf("Error while trying to read from volume %s - %v", vol.ObjectName, err)
+			eerr := vol.Extract(ctx, j)
+			if eerr != nil {
+				helpers.AppLogger.Errorf("Error while trying to read from volume %s - %v", vol.ObjectName, eerr)
 				panic(helpers.Exit{Code: 507})
 			}
 			_, err = io.CopyBuffer(cout, vol, buf)
