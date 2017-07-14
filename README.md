@@ -102,7 +102,6 @@ Use "zfsbackup [command] --help" for more information about a command.
 * Test Coverage
 * Add more backends (e.g. Azure, BackBlaze, etc.)
 * Fix error handling (at least omit panic dumps!)
-* Figure out high memory usage during restores
 * Add delete feature
 * Appease linters
 
