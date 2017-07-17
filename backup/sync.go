@@ -44,12 +44,13 @@ func prepareBackend(ctx context.Context, j *helpers.JobInfo, backendURI string, 
 		MaxRetryTime:            j.MaxRetryTime,
 	}
 
-	prefix := backendURI[:2]
-	if backendURI == backends.DeleteBackendPrefix {
-		prefix = backendURI
+	prefix := strings.Split(backendURI, "://")
+	if len(prefix) < 1 {
+		helpers.AppLogger.Errorf("Invalid destination URI provided: %s.", backendURI)
+		panic(helpers.Exit{Code: 5})
 	}
 
-	backend, err := backends.GetBackendForPrefix(prefix)
+	backend, err := backends.GetBackendForPrefix(prefix[0])
 	if err != nil {
 		helpers.AppLogger.Errorf("Could not get backend for prefix %s.", prefix)
 		panic(helpers.Exit{Code: 6})

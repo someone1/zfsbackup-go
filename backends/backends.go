@@ -78,6 +78,8 @@ func GetBackendForPrefix(prefix string) (Backend, error) {
 		return &GoogleCloudStorageBackend{}, nil
 	case AWSS3BackendPrefix:
 		return &AWSS3Backend{}, nil
+	case FileBackendPrefix:
+		return &FileBackend{}, nil
 	default:
 		return nil, ErrInvalidPrefix
 	}
@@ -85,6 +87,7 @@ func GetBackendForPrefix(prefix string) (Backend, error) {
 
 type uploadWrapper func(vol *helpers.VolumeInfo) func() error
 
+// Helper function to cancel uploads and do an exponential backoff when retrying an upload
 func uploader(ctx context.Context, u uploadWrapper, prefix string, b backoff.BackOff, in <-chan *helpers.VolumeInfo, out chan<- *helpers.VolumeInfo) {
 	for vol := range in {
 		select {
