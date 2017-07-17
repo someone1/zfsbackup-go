@@ -55,10 +55,6 @@ func (d *GoogleCloudStorageBackend) Init(ctx context.Context, conf *BackendConfi
 	d.conf = conf
 	d.ctx, d.cancel = context.WithCancel(ctx)
 
-	if !validURI.MatchString(d.conf.TargetURI) {
-		return ErrInvalidURI
-	}
-
 	cleanPrefix := strings.TrimPrefix(d.conf.TargetURI, "gs://")
 	if cleanPrefix == d.conf.TargetURI {
 		return ErrInvalidURI
@@ -82,11 +78,7 @@ func (d *GoogleCloudStorageBackend) Init(ctx context.Context, conf *BackendConfi
 	d.client = client
 
 	_, err = client.Bucket(d.bucketName).Attrs(ctx)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 // StartUpload will begin the GCS upload workers

@@ -24,7 +24,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"regexp"
 	"time"
 
 	"github.com/cenk/backoff"
@@ -61,8 +60,6 @@ var (
 	ErrInvalidURI = errors.New("backends: invalid URI provided to backend")
 	// ErrInvalidPrefix is returned when a backend destination is provided with a URI prefix that isn't registered.
 	ErrInvalidPrefix = errors.New("backends: the provided prefix does not exist")
-
-	validURI = regexp.MustCompile(`^[a-z0-9]{2}:\/\/[a-z0-9\-_\.]{3,63}[\p{L}\p{M}\p{Zs}\p{S}\p{N}\p{P}].$`)
 )
 
 func (b *BackendConfig) getExpBackoff() backoff.BackOff {

@@ -62,10 +62,6 @@ func (a *AWSS3Backend) Init(ctx context.Context, conf *BackendConfig) error {
 	a.conf = conf
 	a.ctx, a.cancel = context.WithCancel(ctx)
 
-	if !validURI.MatchString(a.conf.TargetURI) {
-		return ErrInvalidURI
-	}
-
 	cleanPrefix := strings.TrimPrefix(a.conf.TargetURI, "s3://")
 	if cleanPrefix == a.conf.TargetURI {
 		return ErrInvalidURI
@@ -81,7 +77,12 @@ func (a *AWSS3Backend) Init(ctx context.Context, conf *BackendConfig) error {
 		a.prefix = strings.Join(uriParts[1:], "/")
 	}
 
-	sess, err := session.NewSession()
+	awsconf := &aws.Config{
+		Endpoint:         aws.String(os.Getenv("AWS_S3_CUSTOM_ENDPOINT")),
+		S3ForcePathStyle: aws.Bool(true),
+	}
+
+	sess, err := session.NewSession(awsconf)
 	if err != nil {
 		return err
 	}

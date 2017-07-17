@@ -22,6 +22,8 @@ This project was inspired by the [duplicity project](http://duplicity.nongnu.org
   - Auth details: https://developers.google.com/identity/protocols/application-default-credentials
 * Amazon AWS S3 (s3://) (Glacier supported indirectly via lifecycle rules)
   - Auth details: https://godoc.org/github.com/aws/aws-sdk-go/aws/session#hdr-Environment_Variables
+* Any S3 Compatible Storage Provider (e.g. Minio, StorageMadeEasy, Ceph, etc.)
+  - Set the AWS_S3_CUSTOM_ENDPOINT environmental variable to the compatible target API URI
 
 
 ### Compression:
