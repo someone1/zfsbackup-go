@@ -41,7 +41,7 @@ Download the latest binaries from the [releases](https://github.com/someone1/zfs
 go get github.com/someone1/zfsbackup-go
 ```
 
-The compiled binary should be in yor $GOPATH/bin directory.
+The compiled binary should be in your $GOPATH/bin directory.
 
 ## Usage
 
