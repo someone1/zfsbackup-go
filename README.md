@@ -10,6 +10,7 @@ This project was inspired by the [duplicity project](http://duplicity.nongnu.org
 
 ### Highlights:
 * Written in Go
+* No external dependencies - Just drop in the binary on your system and you're all set!
 * Backup jobs are resumeable and resilient to network failures
 * Backup files can be compressed and optionally encrypyted and/or signed.
 * Concurrent by design, enable multiple cores for parallel processing
