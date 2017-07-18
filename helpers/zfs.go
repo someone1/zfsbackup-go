@@ -30,6 +30,9 @@ import (
 	"time"
 )
 
+// ZFSPath is the path to the zfs binary
+var ZFSPath = "zfs"
+
 // GetCreationDate will use the zfs command to get and parse the creation datetime
 // of the specified volume/snapshot
 func GetCreationDate(ctx context.Context, target string) (time.Time, error) {
@@ -44,12 +47,43 @@ func GetCreationDate(ctx context.Context, target string) (time.Time, error) {
 	return time.Unix(epochTime, 0), nil
 }
 
+// GetSnapshots will retrieve all snapshots for the given target
+func GetSnapshots(ctx context.Context, target string) ([]SnapshotInfo, error) {
+	errB := new(bytes.Buffer)
+	cmd := exec.CommandContext(ctx, ZFSPath, "list", "-H", "-d", "1", "-p", "-t", "snapshot", "-r", "-o", "name,creation", "-S", "creation", target)
+	AppLogger.Debugf("Getting ZFS Snapshots with command \"%s\"", strings.Join(cmd.Args, " "))
+	cmd.Stderr = errB
+	rpipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.Start()
+	if err != nil {
+		return nil, fmt.Errorf("%s (%v)", strings.TrimSpace(errB.String()), err)
+	}
+	var snapshots []SnapshotInfo
+	for {
+		snapInfo := SnapshotInfo{}
+		var creation int64
+		n, nerr := fmt.Fscanln(rpipe, &snapInfo.Name, &creation)
+		if n == 0 || nerr != nil {
+			break
+		}
+		snapInfo.CreationTime = time.Unix(creation, 0)
+		snapInfo.Name = strings.TrimPrefix(snapInfo.Name, target)
+		snapInfo.Name = strings.TrimPrefix(snapInfo.Name, "@")
+		snapshots = append(snapshots, snapInfo)
+	}
+	err = cmd.Wait()
+	return snapshots, err
+}
+
 // GetZFSProperty will return the raw value returned by the "zfs get" command for
 // the given property on the given target.
 func GetZFSProperty(ctx context.Context, prop, target string) (string, error) {
 	b := new(bytes.Buffer)
 	errB := new(bytes.Buffer)
-	cmd := exec.CommandContext(ctx, "zfs", "get", "-H", "-p", "-o", "value", prop, target)
+	cmd := exec.CommandContext(ctx, ZFSPath, "get", "-H", "-p", "-o", "value", prop, target)
 	AppLogger.Debugf("Getting ZFS Property with command \"%s\"", strings.Join(cmd.Args, " "))
 	cmd.Stdout = b
 	cmd.Stderr = errB
@@ -92,7 +126,7 @@ func GetZFSSendCommand(ctx context.Context, j *JobInfo) *exec.Cmd {
 	}
 
 	zfsArgs = append(zfsArgs, fmt.Sprintf("%s@%s", j.VolumeName, j.BaseSnapshot.Name))
-	cmd := exec.CommandContext(ctx, "zfs", zfsArgs...)
+	cmd := exec.CommandContext(ctx, ZFSPath, zfsArgs...)
 
 	return cmd
 }
@@ -129,7 +163,7 @@ func GetZFSReceiveCommand(ctx context.Context, j *JobInfo) *exec.Cmd {
 	}
 
 	zfsArgs = append(zfsArgs, j.LocalVolume)
-	cmd := exec.CommandContext(ctx, "zfs", zfsArgs...)
+	cmd := exec.CommandContext(ctx, ZFSPath, zfsArgs...)
 
 	return cmd
 }

@@ -63,13 +63,6 @@ func List(jobInfo *helpers.JobInfo) {
 	sort.SliceStable(decodedManifests, func(i, j int) bool {
 		cmp := strings.Compare(decodedManifests[i].VolumeName, decodedManifests[j].VolumeName)
 		if cmp == 0 {
-			if decodedManifests[i].IncrementalSnapshot.Name != "" && decodedManifests[j].IncrementalSnapshot.Name != "" {
-				return decodedManifests[i].IncrementalSnapshot.CreationTime.Before(decodedManifests[j].IncrementalSnapshot.CreationTime)
-			} else if decodedManifests[i].IncrementalSnapshot.Name != "" {
-				return decodedManifests[i].IncrementalSnapshot.CreationTime.Before(decodedManifests[j].BaseSnapshot.CreationTime)
-			} else if decodedManifests[j].IncrementalSnapshot.Name != "" {
-				return decodedManifests[i].BaseSnapshot.CreationTime.Before(decodedManifests[j].IncrementalSnapshot.CreationTime)
-			}
 			return decodedManifests[i].BaseSnapshot.CreationTime.Before(decodedManifests[j].BaseSnapshot.CreationTime)
 		}
 		return cmp < 0

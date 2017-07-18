@@ -56,6 +56,10 @@ type JobInfo struct {
 	Properties              bool
 	IntermediaryIncremental bool
 	Resume                  bool `json:"-"`
+	// "Smart" Options
+	Full            bool          `json:"-"`
+	Incremental     bool          `json:"-"`
+	FullIfOlderThan time.Duration `json:"-"`
 
 	// ZFS Receive options
 	Force       bool   `json:"-"`
@@ -80,6 +84,13 @@ type JobInfo struct {
 type SnapshotInfo struct {
 	CreationTime time.Time
 	Name         string
+}
+
+func (s *SnapshotInfo) Equal(t *SnapshotInfo) bool {
+	if s == nil || t == nil {
+		return s == t
+	}
+	return strings.Compare(s.Name, t.Name) == 0 && s.CreationTime.Equal(t.CreationTime)
 }
 
 // TotalBytesWritten will sum up the size of all underlying Volumes to give a total

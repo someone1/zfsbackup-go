@@ -42,6 +42,115 @@ import (
 	"github.com/someone1/zfsbackup-go/helpers"
 )
 
+// ProcessSmartOptions will compute the snapshots to use
+func ProcessSmartOptions(jobInfo *helpers.JobInfo) error {
+	snapshots, err := helpers.GetSnapshots(context.Background(), jobInfo.VolumeName)
+	if err != nil {
+		return err
+	}
+	jobInfo.BaseSnapshot = snapshots[0]
+	if jobInfo.Full {
+		// TODO: Check if we already have a full backup for this snapshot in the destination(s)
+		return nil
+	}
+	lastComparableSnapshots := make([]*helpers.SnapshotInfo, len(jobInfo.Destinations))
+	lastBackup := make([]*helpers.SnapshotInfo, len(jobInfo.Destinations))
+	for idx := range jobInfo.Destinations {
+		destBackups, derr := getBackupsForTarget(context.Background(), jobInfo.VolumeName, jobInfo.Destinations[idx], jobInfo)
+		if derr != nil {
+			return derr
+		}
+		if len(destBackups) == 0 {
+			continue
+		}
+		lastBackup[idx] = &destBackups[0].BaseSnapshot
+		if jobInfo.Incremental {
+			lastComparableSnapshots[idx] = &destBackups[0].BaseSnapshot
+		}
+		if jobInfo.FullIfOlderThan != -1*time.Minute {
+			for _, bkp := range destBackups {
+				if bkp.IncrementalSnapshot.Name == "" {
+					lastComparableSnapshots[idx] = &bkp.BaseSnapshot
+					break
+				}
+			}
+		}
+	}
+
+	var lastNotEqual bool
+	// Verify that all "comparable" snapshots are the same across destinations
+	for i := 1; i < len(lastComparableSnapshots); i++ {
+		if !lastComparableSnapshots[i-1].Equal(lastComparableSnapshots[i]) {
+			return fmt.Errorf("destinations are out of sync, cannot continue with smart option")
+		}
+
+		if !lastNotEqual && !lastBackup[i-1].Equal(lastBackup[i]) {
+			lastNotEqual = true
+		}
+	}
+
+	// Now select the proper job options and continue
+	if jobInfo.Incremental {
+		if lastComparableSnapshots[0] == nil {
+			return fmt.Errorf("no snapshot to increment from - try doing a full backup instead")
+		}
+		if lastComparableSnapshots[0].Equal(&snapshots[0]) {
+			return fmt.Errorf("no new snapshot to sync")
+		}
+		jobInfo.IncrementalSnapshot = *lastComparableSnapshots[0]
+	}
+
+	if jobInfo.FullIfOlderThan != -1*time.Minute {
+		if lastComparableSnapshots[0] == nil {
+			// No previous full backup, so do one
+			helpers.AppLogger.Infof("No previous full backup found, performing full backup.")
+			return nil
+		}
+		if snapshots[0].CreationTime.Sub(lastComparableSnapshots[0].CreationTime) > jobInfo.FullIfOlderThan {
+			// Been more than the allotted time, do a full backup
+			helpers.AppLogger.Infof("Last Full backup was %v and is more than %v before the most recent snapshot, performing full backup.", lastComparableSnapshots[0].CreationTime, jobInfo.FullIfOlderThan)
+			return nil
+		}
+		if lastNotEqual {
+			return fmt.Errorf("want to do an incremental backup but last incremental backup at destinations do not match")
+		}
+		if lastBackup[0].Equal(&snapshots[0]) {
+			return fmt.Errorf("no new snapshot to sync")
+		}
+		jobInfo.IncrementalSnapshot = *lastBackup[0]
+	}
+	return nil
+}
+
+func getBackupsForTarget(ctx context.Context, volume, target string, jobInfo *helpers.JobInfo) ([]*helpers.JobInfo, error) {
+	// Prepare the backend client
+	backend := prepareBackend(ctx, jobInfo, target, nil)
+
+	// Get the local cache dir
+	localCachePath := getCacheDir(target)
+
+	// Sync the local cache
+	safeManifests, _ := syncCache(ctx, jobInfo, localCachePath, backend)
+
+	// Read in Manifests and display
+	decodedManifests := make([]*helpers.JobInfo, 0, len(safeManifests))
+	for _, manifest := range safeManifests {
+		manifestPath := filepath.Join(localCachePath, manifest)
+		decodedManifest, oerr := readManifest(ctx, manifestPath, jobInfo)
+		if oerr != nil {
+			return nil, oerr
+		}
+		if strings.Compare(decodedManifest.VolumeName, volume) == 0 {
+			decodedManifests = append(decodedManifests, decodedManifest)
+		}
+	}
+
+	sort.SliceStable(decodedManifests, func(i, j int) bool {
+		return decodedManifests[i].BaseSnapshot.CreationTime.After(decodedManifests[j].BaseSnapshot.CreationTime)
+	})
+	return decodedManifests, nil
+}
+
 // Backup will iniate a backup with the provided configuration.
 func Backup(jobInfo *helpers.JobInfo) {
 	defer helpers.HandleExit()
