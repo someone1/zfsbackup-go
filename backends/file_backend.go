@@ -26,7 +26,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/someone1/zfsbackup-go/helpers"
 )
@@ -37,16 +38,13 @@ const FileBackendPrefix = "file"
 // FileBackend provides a local destination storage option.
 type FileBackend struct {
 	conf      *BackendConfig
-	wg        sync.WaitGroup
-	ctx       context.Context
-	cancel    context.CancelFunc
+	wg        *errgroup.Group
 	localPath string
 }
 
 // Init will initialize the FileBackend and verify the provided URI is valid/exists.
 func (f *FileBackend) Init(ctx context.Context, conf *BackendConfig) error {
 	f.conf = conf
-	f.ctx, f.cancel = context.WithCancel(ctx)
 
 	cleanPrefix := strings.TrimPrefix(f.conf.TargetURI, "file://")
 	if cleanPrefix == f.conf.TargetURI {
@@ -75,29 +73,29 @@ func (f *FileBackend) Init(ctx context.Context, conf *BackendConfig) error {
 }
 
 // StartUpload will begin the file copy workers
-func (f *FileBackend) StartUpload(in <-chan *helpers.VolumeInfo) <-chan *helpers.VolumeInfo {
+func (f *FileBackend) StartUpload(ctx context.Context, in <-chan *helpers.VolumeInfo) <-chan *helpers.VolumeInfo {
 	out := make(chan *helpers.VolumeInfo)
-	f.wg.Add(f.conf.MaxParallelUploads)
+	f.wg, ctx = errgroup.WithContext(ctx)
 	for i := 0; i < f.conf.MaxParallelUploads; i++ {
-		go func() {
-			uploader(f.ctx, f.uploadWrapper, "file", f.conf.getExpBackoff(), in, out)
-			f.wg.Done()
-		}()
+		f.wg.Go(func() error {
+			return uploader(ctx, f.uploadWrapper, "file", f.conf.getExpBackoff(ctx), in, out)
+		})
 	}
 
 	go func() {
-		f.Wait()
+		_ = f.Wait()
+		helpers.AppLogger.Debugf("file backend: closing out channel.")
 		close(out)
 	}()
 
 	return out
 }
 
-func (f *FileBackend) uploadWrapper(vol *helpers.VolumeInfo) func() error {
+func (f *FileBackend) uploadWrapper(ctx context.Context, vol *helpers.VolumeInfo) func() error {
 	return func() error {
 		select {
-		case <-f.ctx.Done():
-			return nil
+		case <-ctx.Done():
+			return ctx.Err()
 		default:
 			f.conf.MaxParallelUploadBuffer <- true
 			defer func() {
@@ -122,16 +120,11 @@ func (f *FileBackend) uploadWrapper(vol *helpers.VolumeInfo) func() error {
 				helpers.AppLogger.Debugf("file backend: Could not create file %s due to error - %v", destinationPath, err)
 				return nil
 			}
+			defer w.Close()
 
 			_, err = io.Copy(w, vol)
 			if err != nil {
 				helpers.AppLogger.Debugf("file backend: Error while copying volume %s - %v", vol.ObjectName, err)
-				// Check if the context was canceled, and if so, don't let the backoff function retry
-				select {
-				case <-f.ctx.Done():
-					return nil
-				default:
-				}
 			}
 			return err
 		}
@@ -139,36 +132,36 @@ func (f *FileBackend) uploadWrapper(vol *helpers.VolumeInfo) func() error {
 }
 
 // Delete will delete the given object from the provided path
-func (f *FileBackend) Delete(filename string) error {
+func (f *FileBackend) Delete(ctx context.Context, filename string) error {
 	return os.Remove(filepath.Join(f.localPath, filename))
 }
 
 // PreDownload does nothing on this backend.
-func (f *FileBackend) PreDownload(objects []string) error {
+func (f *FileBackend) PreDownload(ctx context.Context, objects []string) error {
 	return nil
 }
 
 // Get will open the file for reading
-func (f *FileBackend) Get(filename string) (io.ReadCloser, error) {
+func (f *FileBackend) Get(ctx context.Context, filename string) (io.ReadCloser, error) {
 	return os.Open(filepath.Join(f.localPath, filename))
 }
 
 // Wait will wait until all volumes have been processed from the incoming
 // channel.
-func (f *FileBackend) Wait() {
-	f.wg.Wait()
-}
-
-// Close will signal the upload workers to stop processing the contents of the incoming channel
-// and to close the outgoing channel. It will also cancel any ongoing requests.
-func (f *FileBackend) Close() error {
-	f.cancel()
-	f.Wait()
+func (f *FileBackend) Wait() error {
+	if f.wg != nil {
+		return f.wg.Wait()
+	}
 	return nil
 }
 
+// Close will release any resources used by the file backend
+func (f *FileBackend) Close() error {
+	return f.Wait()
+}
+
 // List will return a list of all files matching the provided prefix
-func (f *FileBackend) List(prefix string) ([]string, error) {
+func (f *FileBackend) List(ctx context.Context, prefix string) ([]string, error) {
 	l := make([]string, 0, 1000)
 	err := filepath.Walk(f.localPath, func(path string, fi os.FileInfo, werr error) error {
 		if werr != nil {

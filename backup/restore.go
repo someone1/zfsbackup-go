@@ -37,12 +37,9 @@ import (
 )
 
 type downloadSequence struct {
-	object string
+	volume *helpers.VolumeInfo
 	c      chan<- *helpers.VolumeInfo
 }
-
-// Algorithm Overview:
-// Ask the user for
 
 func Receive(jobInfo *helpers.JobInfo) {
 	defer helpers.HandleExit()
@@ -71,13 +68,13 @@ func Receive(jobInfo *helpers.JobInfo) {
 	manifest, err := readManifest(ctx, safeManifestPath, jobInfo)
 	if err != nil {
 		if os.IsNotExist(err) {
-			err = backend.PreDownload([]string{tempManifest.ObjectName})
+			err = backend.PreDownload(ctx, []string{tempManifest.ObjectName})
 			if err != nil {
 				helpers.AppLogger.Errorf("Error trying to pre download manifest volume - %v", err)
 				panic(helpers.Exit{Code: 502})
 			}
 			// Try and download the manifest file from the backend
-			downloadTo(backend, tempManifest.ObjectName, safeManifestPath)
+			downloadTo(ctx, backend, tempManifest.ObjectName, safeManifestPath)
 			manifest, err = readManifest(ctx, safeManifestPath, jobInfo)
 		}
 		if err != nil {
@@ -97,34 +94,31 @@ func Receive(jobInfo *helpers.JobInfo) {
 	}
 
 	// PreDownload step
-	err = backend.PreDownload(toDownload)
+	err = backend.PreDownload(ctx, toDownload)
 	if err != nil {
 		helpers.AppLogger.Errorf("Error trying to pre download backup set volumes - %v", err)
 		panic(helpers.Exit{Code: 503})
 	}
+	toDownload = nil
 
 	// Prepare Download Pipeline
 	usePipe := false
 	fileBufferSize := jobInfo.MaxFileBuffer
 	if fileBufferSize == 0 {
 		fileBufferSize = 1
-		if len(manifest.Volumes) > 1 {
-			helpers.AppLogger.Errorf("Cannot use a 0 file buffer size when backup set contains more than one volume!")
-			panic(helpers.Exit{Code: 504})
-		}
 		usePipe = true
 	}
 
 	downloadChannel := make(chan downloadSequence, len(manifest.Volumes))
 	bufferChannel := make(chan interface{}, fileBufferSize)
-	orderedChannels := make([]chan *helpers.VolumeInfo, len(toDownload))
+	orderedChannels := make([]chan *helpers.VolumeInfo, len(manifest.Volumes))
 	defer close(bufferChannel)
 
 	// Queue up files to download
-	for idx, obj := range toDownload {
+	for idx, vol := range manifest.Volumes {
 		c := make(chan *helpers.VolumeInfo, 1)
 		orderedChannels[idx] = c
-		downloadChannel <- downloadSequence{obj, c}
+		downloadChannel <- downloadSequence{vol, c}
 	}
 	close(downloadChannel)
 
@@ -139,28 +133,59 @@ func Receive(jobInfo *helpers.JobInfo) {
 			for sequence := range downloadChannel {
 				bufferChannel <- nil
 				defer close(sequence.c)
-				r, rerr := backend.Get(sequence.object)
-				if rerr == nil {
-					vol, err := helpers.CreateSimpleVolume(ctx, usePipe)
-					if err != nil {
-						helpers.AppLogger.Errorf("Could not create file due to error - %v.", err)
-						panic(helpers.Exit{Code: 205})
-					}
-					vol.ObjectName = sequence.object
-					if usePipe {
-						sequence.c <- vol
-					}
-					_, err = io.CopyBuffer(vol, r, buf)
-					if err != nil {
-						helpers.AppLogger.Errorf("Could not download file %s to the local cache dir due to error - %v.", sequence.object, err)
-						panic(helpers.Exit{Code: 206})
-					}
-					r.Close()
-					if !usePipe {
+				for {
+					retry := func() bool {
+						r, rerr := backend.Get(ctx, sequence.volume.ObjectName)
+						if rerr != nil {
+							helpers.AppLogger.Infof("Could not get %s due to error %v. Retrying.", sequence.volume.ObjectName, rerr)
+							return true
+						}
+						defer r.Close()
+						vol, err := helpers.CreateSimpleVolume(ctx, usePipe)
+						if err != nil {
+							helpers.AppLogger.Noticef("Could not create temporary file to download %s due to error - %v. Retrying.", sequence.volume.ObjectName, err)
+							return true
+						}
+
+						defer vol.Close()
+						vol.ObjectName = sequence.volume.ObjectName
+						if usePipe {
+							sequence.c <- vol
+						}
+
+						_, err = io.CopyBuffer(vol, r, buf)
+						if err != nil {
+							helpers.AppLogger.Noticef("Could not download file %s to the local cache dir due to error - %v. Retrying.", sequence.volume.ObjectName, err)
+							vol.Close()
+							vol.DeleteVolume()
+							if usePipe {
+								helpers.AppLogger.Errorf("Cannot retry when using no file buffer, aborting.")
+								panic(helpers.Exit{Code: 504})
+							}
+						}
 						vol.Close()
-						sequence.c <- vol
+
+						// Verify the SHA256 Hash, if it doesn't match, ditch it!
+						if vol.SHA256Sum != sequence.volume.SHA256Sum {
+							helpers.AppLogger.Infof("Hash mismatch for %s, got %s but expected %s. Retrying.", sequence.volume.ObjectName, vol.SHA256Sum, sequence.volume.SHA256Sum)
+							if usePipe {
+								helpers.AppLogger.Errorf("Cannot retry when using no file buffer, aborting.")
+								panic(helpers.Exit{Code: 504})
+							}
+							vol.DeleteVolume()
+							return true
+						}
+						if !usePipe {
+							sequence.c <- vol
+						}
+						helpers.AppLogger.Debugf("Downloaded %s.", sequence.volume.ObjectName)
+
+						return false
+					}()
+					if !retry {
+						break
 					}
-					helpers.AppLogger.Debugf("Downloaded %s to temporary file.", sequence.object)
+					time.Sleep(5 * time.Second)
 				}
 			}
 		}()
@@ -253,8 +278,8 @@ func receiveStream(ctx context.Context, cmd *exec.Cmd, j *helpers.JobInfo, c <-c
 	return
 }
 
-func downloadTo(backend backends.Backend, objectName, toPath string) {
-	r, rerr := backend.Get(objectName)
+func downloadTo(ctx context.Context, backend backends.Backend, objectName, toPath string) {
+	r, rerr := backend.Get(ctx, objectName)
 	if rerr == nil {
 		defer r.Close()
 		out, oerr := os.Create(toPath)

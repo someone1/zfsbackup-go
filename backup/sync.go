@@ -78,7 +78,7 @@ func getCacheDir(backendURI string) string {
 // Returns local manifest paths that exist in the backend and those that do not
 func syncCache(ctx context.Context, j *helpers.JobInfo, localCache string, backend backends.Backend) ([]string, []string) {
 	// List all manifests at the destination
-	manifests, merr := backend.List(j.ManifestPrefix)
+	manifests, merr := backend.List(ctx, j.ManifestPrefix)
 	if merr != nil {
 		helpers.AppLogger.Errorf("Could not list manifest files from the backed due to error - %v.", merr)
 		panic(helpers.Exit{Code: 203})
@@ -118,7 +118,7 @@ func syncCache(ctx context.Context, j *helpers.JobInfo, localCache string, backe
 		}
 	}
 
-	pderr := backend.PreDownload(manifests)
+	pderr := backend.PreDownload(ctx, manifests)
 	if pderr != nil {
 		helpers.AppLogger.Errorf("Could not prepare manifests for download due to error - %v", pderr)
 		panic(helpers.Exit{Code: 208})
@@ -129,7 +129,7 @@ func syncCache(ctx context.Context, j *helpers.JobInfo, localCache string, backe
 
 		// manifests should only contain what we don't have locally
 		for idx, manifest := range manifests {
-			downloadTo(backend, manifest, filepath.Join(localCache, safeManifests[idx]))
+			downloadTo(ctx, backend, manifest, filepath.Join(localCache, safeManifests[idx]))
 		}
 	}
 

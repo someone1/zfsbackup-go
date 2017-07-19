@@ -114,6 +114,9 @@ func (v *VolumeInfo) Counter() uint64 {
 // Read will passthru the command to the underlying io.Reader, which will be setup
 // to ratelimit where applicable.
 func (v *VolumeInfo) Read(p []byte) (int, error) {
+	if v.r == nil {
+		return 0, fmt.Errorf("nothing to read from")
+	}
 	i, err := v.r.Read(p)
 	if err == io.EOF && v.pgpr != nil {
 		if v.pgpr.IsSigned {
@@ -128,9 +131,25 @@ func (v *VolumeInfo) Read(p []byte) (int, error) {
 	return i, err
 }
 
+// IsUsingPipe will return true when the volume is a glorified pipe
+func (v *VolumeInfo) IsUsingPipe() bool {
+	return v.usingPipe
+}
+
 // Seek will passthru the command to the underlying *os.File
 func (v *VolumeInfo) Seek(offset int64, whence int) (int64, error) {
+	if v.usingPipe {
+		return 0, fmt.Errorf("cannot Seek on a piped reader")
+	}
 	return v.fw.Seek(offset, whence)
+}
+
+// ReadAt will passthru the command to the underlying *os.File
+func (v *VolumeInfo) ReadAt(p []byte, off int64) (int, error) {
+	if v.usingPipe {
+		return 0, fmt.Errorf("cannot ReadAt on a piped reader")
+	}
+	return v.fw.ReadAt(p, off)
 }
 
 // OpenVolume will open this VolumeInfo in a read-only mode. It will automatically
@@ -168,14 +187,16 @@ func ExtractLocal(ctx context.Context, j *JobInfo, path string) (*VolumeInfo, er
 // Extract will setup the volume for reading such that reading from it will handle any
 // decryption, signature verification, and decompression that was used on it.
 func (v *VolumeInfo) Extract(ctx context.Context, j *JobInfo) error {
-	f, err := os.Open(v.filename)
-	if err != nil {
-		return err
+	if !v.usingPipe {
+		f, ferr := os.Open(v.filename)
+		if ferr != nil {
+			return ferr
+		}
+		v.fw = f
+		v.r = f
+		v.isClosed = false
+		v.isOpened = true
 	}
-	v.fw = f
-	v.r = f
-	v.isClosed = false
-	v.isOpened = true
 
 	if j.EncryptKey != nil || j.SignKey != nil {
 		config := new(packet.Config)
@@ -188,6 +209,8 @@ func (v *VolumeInfo) Extract(ctx context.Context, j *JobInfo) error {
 		v.pgpr = pgpReader
 		v.r = pgpReader.UnverifiedBody
 	}
+
+	var err error
 
 	switch j.Compressor {
 	case "internal":
@@ -217,6 +240,9 @@ func (v *VolumeInfo) Extract(ctx context.Context, j *JobInfo) error {
 // DeleteVolume will delete the volume from the temporary directory it was written to.
 // Only valid to be called after creating a new Volume and closing it.
 func (v *VolumeInfo) DeleteVolume() error {
+	if v.usingPipe {
+		return nil // Nothing to delete
+	}
 	return os.Remove(v.filename)
 }
 

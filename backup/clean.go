@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
 	"github.com/someone1/zfsbackup-go/helpers"
 )
 
@@ -88,7 +89,7 @@ func Clean(jobInfo *helpers.JobInfo, cleanLocal bool) {
 
 	// TODO: The following can be done in a much more efficient way (probably)
 
-	allObjects, err := backend.List("")
+	allObjects, err := backend.List(ctx, "")
 	if err != nil {
 		helpers.AppLogger.Errorf("Could not list objects in backend %s due to error - %v", jobInfo.Destinations[0], err)
 		panic(helpers.Exit{Code: 304})
@@ -163,7 +164,7 @@ func Clean(jobInfo *helpers.JobInfo, cleanLocal bool) {
 		go func(objectPath string) {
 			buffer <- nil
 			defer wg.Done()
-			err := backend.Delete(objectPath)
+			err := backend.Delete(ctx, objectPath)
 			if err != nil {
 				helpers.AppLogger.Errorf("Could not delete object %s in due to error - %v", objectPath, err)
 				panic(helpers.Exit{Code: 305})

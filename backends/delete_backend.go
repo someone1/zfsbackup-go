@@ -24,7 +24,8 @@ import (
 	"context"
 	"errors"
 	"io"
-	"sync"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/someone1/zfsbackup-go/helpers"
 )
@@ -34,80 +35,84 @@ const DeleteBackendPrefix = "delete"
 
 // DeleteBackend is a special Backend used to delete the files after they've been uploaded
 type DeleteBackend struct {
-	conf   *BackendConfig
-	wg     sync.WaitGroup
-	ctx    context.Context
-	cancel context.CancelFunc
+	conf *BackendConfig
+	wg   *errgroup.Group
 }
 
 // Init will initialize the DeleteBackend
 func (d *DeleteBackend) Init(ctx context.Context, conf *BackendConfig) error {
 	d.conf = conf
-	d.ctx, d.cancel = context.WithCancel(ctx)
-
 	return nil
 }
 
-func (d *DeleteBackend) listener(in <-chan *helpers.VolumeInfo, out chan<- *helpers.VolumeInfo) {
-	defer d.wg.Done()
-	for {
+func (d *DeleteBackend) listener(ctx context.Context, in <-chan *helpers.VolumeInfo, out chan<- *helpers.VolumeInfo) error {
+	for vol := range in {
 		select {
-		case <-d.ctx.Done():
-			return
-		case vol := <-in:
-			if vol == nil {
-				return
-			}
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 			if err := vol.DeleteVolume(); err != nil {
 				helpers.AppLogger.Errorf("delete backend: could not delete volume %s due to error: %v", vol.ObjectName, err)
-				panic(helpers.Exit{Code: 12})
+				return err
 			}
 			helpers.AppLogger.Debugf("delete backend: Deleted Volume %s", vol.ObjectName)
-			out <- vol
+			select {
+			case <-ctx.Done():
+				continue
+			default:
+				out <- vol
+			}
 		}
 	}
+	return nil
 }
 
 // Delete should not be used with this backend
-func (d *DeleteBackend) Delete(filename string) error {
+func (d *DeleteBackend) Delete(ctx context.Context, filename string) error {
 	return errors.New("delete backend: Delete is invalid for this backend")
 }
 
 // PreDownload should not be used with this backend
-func (d *DeleteBackend) PreDownload(objects []string) error {
+func (d *DeleteBackend) PreDownload(ctx context.Context, objects []string) error {
 	return errors.New("delete backend: PreDownload is invalid for this backend")
 }
 
 // Get should not be used with this backend
-func (d *DeleteBackend) Get(filename string) (io.ReadCloser, error) {
+func (d *DeleteBackend) Get(ctx context.Context, filename string) (io.ReadCloser, error) {
 	return nil, errors.New("delete backend: Get is invalid for this backend")
 }
 
 // Wait will wait until all volumes have been deleted and processed from the incoming
 // channel.
-func (d *DeleteBackend) Wait() {
-	d.wg.Wait()
+func (d *DeleteBackend) Wait() error {
+	if d.wg != nil {
+		return d.wg.Wait()
+	}
+	return nil
 }
 
 // Close will signal the listener to stop processing the contents of the incoming channel
 // and to close the outgoing channel.
 func (d *DeleteBackend) Close() error {
-	d.cancel()
+	_ = d.Wait()
 	return nil
 }
 
 // List should not be used with this backend
-func (d *DeleteBackend) List(prefix string) ([]string, error) {
+func (d *DeleteBackend) List(ctx context.Context, prefix string) ([]string, error) {
 	return nil, errors.New("delete backend: List is invalid for this backend")
 }
 
 // StartUpload will run the channel listener on the incoming channel
-func (d *DeleteBackend) StartUpload(in <-chan *helpers.VolumeInfo) <-chan *helpers.VolumeInfo {
-	d.wg.Add(1)
+func (d *DeleteBackend) StartUpload(ctx context.Context, in <-chan *helpers.VolumeInfo) <-chan *helpers.VolumeInfo {
+	d.wg, ctx = errgroup.WithContext(ctx)
 	out := make(chan *helpers.VolumeInfo)
-	go d.listener(in, out)
+	d.wg.Go(func() error {
+		return d.listener(ctx, in, out)
+	})
 	go func() {
-		d.Wait()
+		_ = d.Wait()
+		helpers.AppLogger.Debugf("delete backend: closing out channel.")
 		close(out)
 	}()
 	return out

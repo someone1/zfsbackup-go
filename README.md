@@ -56,7 +56,7 @@ Use the `--increment` option to auto select the most recent snapshot on the targ
 
 	$ ./zfsbackup send --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --increment Tank/Dataset gs://backup-bucket-target,s3://another-backup-target
 
-Use the `--fullIfOlderThan` option to auto select the most recent snapshot on the target volume to do an incremental snapshot of the most recent snapshot found in the target destination:
+Use the `--fullIfOlderThan` option to auto select the most recent snapshot on the target volume to do an incremental snapshot of the most recent snapshot found in the target destination, unless the last full backup is older than the provided duration, in which case do a full backup:
 
 	$ ./zfsbackup send --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --fullIfOlderThan 720h Tank/Dataset gs://backup-bucket-target,s3://another-backup-target
 
@@ -82,7 +82,7 @@ Incremental restore example:
 Notes:
 * Create keyring files: https://keybase.io/crypto
 * PGP Passphrase will be prompted during execution if it is not found in the PGP_PASSPHRASE environmental variable.
-* `--maxFileBuffer=0` will disable parallel processing, chunking, multiple destinations, and upload hash verification but will use virtually no disk space.
+* `--maxFileBuffer=0` will disable parallel uploading for some backends, multiple destinations, and upload hash verification but will use virtually no disk space.
 * For S3: Specify Standard/Bulk/Expedited in the AWS_S3_GLACIER_RESTORE_TIER environmental variable to change Glacier restore option (default: Bulk)
 * A duration string is a possibly signed sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300ms", "-1.5h" or "2h45m". Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
 
