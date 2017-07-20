@@ -88,11 +88,12 @@ func (d *GoogleCloudStorageBackend) StartUpload(ctx context.Context, in <-chan *
 		})
 	}
 
-	go func() {
+	d.wg.Go(func() error {
 		_ = d.Wait()
 		helpers.AppLogger.Debugf("gs backend: closing out channel.")
 		close(out)
-	}()
+		return nil
+	})
 
 	return out
 }

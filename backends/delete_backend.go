@@ -110,10 +110,11 @@ func (d *DeleteBackend) StartUpload(ctx context.Context, in <-chan *helpers.Volu
 	d.wg.Go(func() error {
 		return d.listener(ctx, in, out)
 	})
-	go func() {
+	d.wg.Go(func() error {
 		_ = d.Wait()
 		helpers.AppLogger.Debugf("delete backend: closing out channel.")
 		close(out)
-	}()
+		return nil
+	})
 	return out
 }

@@ -82,11 +82,12 @@ func (f *FileBackend) StartUpload(ctx context.Context, in <-chan *helpers.Volume
 		})
 	}
 
-	go func() {
+	f.wg.Go(func() error {
 		_ = f.Wait()
 		helpers.AppLogger.Debugf("file backend: closing out channel.")
 		close(out)
-	}()
+		return nil
+	})
 
 	return out
 }

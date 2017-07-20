@@ -120,11 +120,12 @@ func (a *AWSS3Backend) StartUpload(ctx context.Context, in <-chan *helpers.Volum
 		return uploader(ctx, a.uploadWrapper, "s3", a.conf.getExpBackoff(ctx), in, out)
 	})
 
-	go func() {
+	a.wg.Go(func() error {
 		_ = a.Wait()
 		helpers.AppLogger.Debugf("s3 backend: closing out channel.")
 		close(out)
-	}()
+		return nil
+	})
 
 	return out
 }
