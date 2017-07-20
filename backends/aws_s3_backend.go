@@ -115,7 +115,7 @@ func (a *AWSS3Backend) Init(ctx context.Context, conf *BackendConfig) error {
 // StartUpload will begin the S3 upload workers
 func (a *AWSS3Backend) StartUpload(ctx context.Context, in <-chan *helpers.VolumeInfo) <-chan *helpers.VolumeInfo {
 	out := make(chan *helpers.VolumeInfo)
-	a.wg, ctx = errgroup.WithContext(ctx)
+	a.wg = new(errgroup.Group)
 	a.wg.Go(func() error {
 		return uploader(ctx, a.uploadWrapper, "s3", a.conf.getExpBackoff(ctx), in, out)
 	})
