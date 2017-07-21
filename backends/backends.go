@@ -24,7 +24,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/cenkalti/backoff"
 
@@ -69,9 +73,14 @@ func (b *BackendConfig) getExpBackoff(ctx context.Context) backoff.BackOff {
 	return backoff.WithContext(be, ctx)
 }
 
-// GetBackendForPrefix will return the backend associated with the provided prefix.
-func GetBackendForPrefix(prefix string) (Backend, error) {
-	switch prefix {
+// GetBackendForURI will try and parse the URI for a matching backend to use.
+func GetBackendForURI(uri string) (Backend, error) {
+	prefix := strings.Split(uri, "://")
+	if len(prefix) < 2 {
+		return nil, ErrInvalidURI
+	}
+
+	switch prefix[0] {
 	case DeleteBackendPrefix:
 		return &DeleteBackend{}, nil
 	case GoogleCloudStorageBackendPrefix:
@@ -87,30 +96,55 @@ func GetBackendForPrefix(prefix string) (Backend, error) {
 
 type uploadWrapper func(ctx context.Context, vol *helpers.VolumeInfo) func() error
 
-// Helper function to cancel uploads signaled by the context and do an exponential backoff when retrying an upload
-func uploader(ctx context.Context, u uploadWrapper, prefix string, b backoff.BackOff, in <-chan *helpers.VolumeInfo, out chan<- *helpers.VolumeInfo) error {
-	for vol := range in {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			helpers.AppLogger.Debugf("%s backend: Uploading volume %s", prefix, vol.ObjectName)
-			operation := u(ctx, vol)
-			if err := backoff.Retry(operation, b); err != nil {
-				// TODO: How to handle errors!?
-				helpers.AppLogger.Errorf("%s backend: Failed to upload volume %s due to error: %v", prefix, vol.ObjectName, err)
-				return err
-			}
-			helpers.AppLogger.Debugf("%s backend: Uploaded volume %s", prefix, vol.ObjectName)
-
-			// If the context is cancelled, the out channel might be closed
-			select {
-			case <-ctx.Done():
-				continue
-			default:
-				out <- vol
-			}
-		}
+func retryUploadOrchestrator(ctx context.Context, in <-chan *helpers.VolumeInfo, u uploadWrapper, conf *BackendConfig, workers int) (<-chan *helpers.VolumeInfo, *errgroup.Group) {
+	out := make(chan *helpers.VolumeInfo)
+	parts := strings.Split(conf.TargetURI, "://")
+	prefix := parts[0]
+	var gwg *errgroup.Group
+	if workers > 1 {
+		gwg, ctx = errgroup.WithContext(ctx)
+	} else {
+		gwg = new(errgroup.Group)
 	}
-	return nil
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		gwg.Go(func() error {
+			defer wg.Done()
+			for vol := range in {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				default:
+					helpers.AppLogger.Debugf("%s backend: Uploading volume %s", prefix, vol.ObjectName)
+					operation := u(ctx, vol)
+					if err := backoff.Retry(operation, conf.getExpBackoff(ctx)); err != nil {
+						// TODO: How to handle errors!?
+						helpers.AppLogger.Errorf("%s backend: Failed to upload volume %s due to error: %v", prefix, vol.ObjectName, err)
+						return err
+					}
+					helpers.AppLogger.Debugf("%s backend: Uploaded volume %s", prefix, vol.ObjectName)
+
+					// If the context is cancelled, the out channel might be closed
+					select {
+					case <-ctx.Done():
+						continue
+					default:
+						out <- vol
+					}
+				}
+			}
+			return nil
+		})
+	}
+
+	gwg.Go(func() error {
+		wg.Wait()
+		helpers.AppLogger.Debugf("%s backend: closing out channel.", prefix)
+		close(out)
+		return nil
+	})
+
+	return out, gwg
 }

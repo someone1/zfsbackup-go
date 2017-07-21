@@ -48,19 +48,19 @@ func (f *FileBackend) Init(ctx context.Context, conf *BackendConfig) error {
 
 	cleanPrefix := strings.TrimPrefix(f.conf.TargetURI, "file://")
 	if cleanPrefix == f.conf.TargetURI {
-		return ErrInvalidURI
+		return ErrInvalidPrefix
 	}
 
 	absLocalPath, err := filepath.Abs(cleanPrefix)
 	if err != nil {
 		helpers.AppLogger.Errorf("file backend: Error while verifying path %s - %v", cleanPrefix, err)
-		return ErrInvalidURI
+		return err
 	}
 
 	fi, err := os.Stat(absLocalPath)
 	if err != nil {
 		helpers.AppLogger.Errorf("file backend: Error while verifying path %s - %v", absLocalPath, err)
-		return ErrInvalidURI
+		return err
 	}
 
 	if !fi.IsDir() {
@@ -74,21 +74,8 @@ func (f *FileBackend) Init(ctx context.Context, conf *BackendConfig) error {
 
 // StartUpload will begin the file copy workers
 func (f *FileBackend) StartUpload(ctx context.Context, in <-chan *helpers.VolumeInfo) <-chan *helpers.VolumeInfo {
-	out := make(chan *helpers.VolumeInfo)
-	f.wg, ctx = errgroup.WithContext(ctx)
-	for i := 0; i < f.conf.MaxParallelUploads; i++ {
-		f.wg.Go(func() error {
-			return uploader(ctx, f.uploadWrapper, "file", f.conf.getExpBackoff(ctx), in, out)
-		})
-	}
-
-	f.wg.Go(func() error {
-		_ = f.Wait()
-		helpers.AppLogger.Debugf("file backend: closing out channel.")
-		close(out)
-		return nil
-	})
-
+	out, wgw := retryUploadOrchestrator(ctx, in, f.uploadWrapper, f.conf, f.conf.MaxParallelUploads)
+	f.wg = wgw
 	return out
 }
 
@@ -158,7 +145,8 @@ func (f *FileBackend) Wait() error {
 
 // Close will release any resources used by the file backend
 func (f *FileBackend) Close() error {
-	return f.Wait()
+	_ = f.Wait()
+	return nil
 }
 
 // List will return a list of all files matching the provided prefix

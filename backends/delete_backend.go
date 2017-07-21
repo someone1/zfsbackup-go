@@ -39,31 +39,9 @@ type DeleteBackend struct {
 	wg   *errgroup.Group
 }
 
-// Init will initialize the DeleteBackend
+// Init will initialize the DeleteBackend (aka do nothing)
 func (d *DeleteBackend) Init(ctx context.Context, conf *BackendConfig) error {
 	d.conf = conf
-	return nil
-}
-
-func (d *DeleteBackend) listener(ctx context.Context, in <-chan *helpers.VolumeInfo, out chan<- *helpers.VolumeInfo) error {
-	for vol := range in {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			if err := vol.DeleteVolume(); err != nil {
-				helpers.AppLogger.Errorf("delete backend: could not delete volume %s due to error: %v", vol.ObjectName, err)
-				return err
-			}
-			helpers.AppLogger.Debugf("delete backend: Deleted Volume %s", vol.ObjectName)
-			select {
-			case <-ctx.Done():
-				continue
-			default:
-				out <- vol
-			}
-		}
-	}
 	return nil
 }
 
@@ -105,16 +83,23 @@ func (d *DeleteBackend) List(ctx context.Context, prefix string) ([]string, erro
 
 // StartUpload will run the channel listener on the incoming channel
 func (d *DeleteBackend) StartUpload(ctx context.Context, in <-chan *helpers.VolumeInfo) <-chan *helpers.VolumeInfo {
-	d.wg, ctx = errgroup.WithContext(ctx)
-	out := make(chan *helpers.VolumeInfo)
-	d.wg.Go(func() error {
-		return d.listener(ctx, in, out)
-	})
-	d.wg.Go(func() error {
-		_ = d.Wait()
-		helpers.AppLogger.Debugf("delete backend: closing out channel.")
-		close(out)
-		return nil
-	})
+	out, wgw := retryUploadOrchestrator(ctx, in, d.uploadWrapper, d.conf, 1)
+	d.wg = wgw
 	return out
+}
+
+func (d *DeleteBackend) uploadWrapper(ctx context.Context, vol *helpers.VolumeInfo) func() error {
+	return func() error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			if err := vol.DeleteVolume(); err != nil {
+				helpers.AppLogger.Errorf("delete backend: could not delete volume %s due to error: %v", vol.ObjectName, err)
+				return err
+			}
+			helpers.AppLogger.Debugf("delete backend: Deleted Volume %s", vol.ObjectName)
+		}
+		return nil
+	}
 }

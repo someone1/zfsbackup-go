@@ -37,6 +37,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"golang.org/x/sync/errgroup"
 
@@ -51,7 +52,7 @@ type AWSS3Backend struct {
 	conf       *BackendConfig
 	wg         *errgroup.Group
 	sess       *session.Session
-	client     *s3.S3
+	client     s3iface.S3API
 	uploader   *s3manager.Uploader
 	prefix     string
 	bucketName string
@@ -114,19 +115,8 @@ func (a *AWSS3Backend) Init(ctx context.Context, conf *BackendConfig) error {
 
 // StartUpload will begin the S3 upload workers
 func (a *AWSS3Backend) StartUpload(ctx context.Context, in <-chan *helpers.VolumeInfo) <-chan *helpers.VolumeInfo {
-	out := make(chan *helpers.VolumeInfo)
-	a.wg = new(errgroup.Group)
-	a.wg.Go(func() error {
-		return uploader(ctx, a.uploadWrapper, "s3", a.conf.getExpBackoff(ctx), in, out)
-	})
-
-	a.wg.Go(func() error {
-		_ = a.Wait()
-		helpers.AppLogger.Debugf("s3 backend: closing out channel.")
-		close(out)
-		return nil
-	})
-
+	out, wgw := retryUploadOrchestrator(ctx, in, a.uploadWrapper, a.conf, 1)
+	a.wg = wgw
 	return out
 }
 
