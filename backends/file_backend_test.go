@@ -21,11 +21,19 @@
 package backends
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/someone1/zfsbackup-go/helpers"
 )
 
 func TestFileGetBackendForURI(t *testing.T) {
@@ -128,100 +136,174 @@ func TestFileDelete(t *testing.T) {
 	}
 }
 
-// func TestFileList(t *testing.T) {
-// 	tempDir, err := ioutil.TempDir()
-// 	w, err := ioutil.TempFile("filebackendtestfile", "filebackendtestfile")
-// 	if err != nil {
-// 		t.Errorf("Error trying to create a tempfile: %v", err)
-// 	}
-// 	defer os.Remove(w.Name())
-// 	w2, err := ioutil.TempFile("filebackendtestfile", "filebackendtestfileextended")
-// 	if err != nil {
-// 		t.Errorf("Error trying to create a tempfile: %v", err)
-// 	}
-// 	defer os.Remove(w.Name())
-// 	defer os.Remove(w2.Name())
-// 	trimPrefix := filepath.Join(os.TempDir(), "filebackendtestfile")
+func TestFileList(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "filebackendtesttempdir")
+	if err != nil {
+		t.Errorf("Error trying to create a tempdir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
 
-// 	b := &FileBackend{}
-// 	if err := b.Init(context.Background(), nil); err != nil {
-// 		t.Errorf("Expected error %v, got %v", nil, err)
-// 	} else {
-// 		l, err = b.List(context.Background(), "filebackendtestfile")
-// 		if err != nil {
-// 			t.Errorf("Expected nil error, got %v", err)
-// 		}
+	w, err := ioutil.TempFile(tempDir, "filebackendtestfile")
+	if err != nil {
+		t.Errorf("Error trying to create a tempfile: %v", err)
+	}
+	defer os.Remove(w.Name())
+	w2, err := ioutil.TempFile(tempDir, "filebackendtestfileextended")
+	if err != nil {
+		t.Errorf("Error trying to create a tempfile: %v", err)
+	}
+	defer os.Remove(w2.Name())
+	cleanName := strings.TrimPrefix(w.Name(), tempDir+string(filepath.Separator))
+	cleanName2 := strings.TrimPrefix(w2.Name(), tempDir+string(filepath.Separator))
 
-// 		if len(l) != 2 {
-// 			t.Errorf("Expected only 2 files to list, got %d", len(l))
-// 		}
+	config := &BackendConfig{
+		TargetURI: "file://" + tempDir,
+	}
 
-// 		if l[0] ==
+	b := &FileBackend{}
+	if err := b.Init(context.Background(), config); err != nil {
+		t.Errorf("Expected error %v, got %v", nil, err)
+	} else {
+		l, err := b.List(context.Background(), "")
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
 
-// 	}
-// }
+		if len(l) != 2 {
+			t.Errorf("Expected only 2 files to list, got %d", len(l))
+		}
 
-// func TestFileGet(t *testing.T) {
-// 	b := &DeleteBackend{}
-// 	if err := b.Init(context.Background(), nil); err != nil {
-// 		t.Errorf("Expected error %v, got %v", nil, err)
-// 	} else {
-// 		_, err = b.Get(context.Background(), "")
-// 		if err == nil {
-// 			t.Errorf("Expected non-nil error, got %v", err)
-// 		}
-// 	}
-// }
+		if l[0] != cleanName && l[1] != cleanName {
+			t.Errorf("Could not find an expected file in the provided list.")
+		}
+		if l[0] != cleanName2 && l[1] != cleanName2 {
+			t.Errorf("Could not find an expected file in the provided list.")
+		}
 
-// func TestFileStartUpload(t *testing.T) {
-// 	_, goodVol, badVol, err := prepareTestVols()
-// 	if err != nil {
-// 		t.Fatalf("error preparing good volume for testing - %v", err)
-// 	}
+		// Test with a known prefix
+		l, err = b.List(context.Background(), "filebackendtestfileextended")
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
 
-// 	config := &BackendConfig{
-// 		TargetURI:      "delete://",
-// 		MaxBackoffTime: 1 * time.Second,
-// 		MaxRetryTime:   5 * time.Second,
-// 	}
+		if len(l) != 1 {
+			t.Errorf("Expected only 1 files to list, got %d", len(l))
+		}
 
-// 	testCases := []struct {
-// 		vol   *helpers.VolumeInfo
-// 		valid func(error) bool
-// 	}{
-// 		{
-// 			vol:   goodVol,
-// 			valid: func(e error) bool { return e == nil },
-// 		},
-// 		{
-// 			vol:   badVol,
-// 			valid: os.IsNotExist,
-// 		},
-// 	}
+		if l[0] != cleanName2 {
+			t.Errorf("Could not find an expected file in the provided list.")
+		}
+	}
+}
 
-// 	for idx, testCase := range testCases {
+func TestFileGet(t *testing.T) {
+	// Let's create a file to Get
+	w, err := ioutil.TempFile("", "filebackendtestfile")
+	if err != nil {
+		t.Errorf("Error trying to create a tempfile: %v", err)
+	}
+	defer os.Remove(w.Name())
 
-// 		b := &DeleteBackend{}
-// 		if err := b.Init(context.Background(), config); err != nil {
-// 			t.Errorf("%d: Expected error %v, got %v", idx, nil, err)
-// 		} else {
-// 			in := make(chan *helpers.VolumeInfo, 1)
-// 			out := b.StartUpload(context.Background(), in)
-// 			in <- testCase.vol
-// 			close(in)
-// 			outVol := <-out
-// 			if errResult := b.Wait(); !testCase.valid(errResult) {
-// 				t.Errorf("%d: error %v id not pass validation function", idx, errResult)
-// 			} else if errResult == nil {
-// 				err = testCase.vol.OpenVolume()
-// 				if !os.IsNotExist(err) {
-// 					t.Errorf("expected not exist error, got %v instead", err)
-// 				}
-// 				// Verify we got the same vol we passed in!
-// 				if outVol != testCase.vol {
-// 					t.Errorf("did not get same volume passed in back out")
-// 				}
-// 			}
-// 		}
-// 	}
-// }
+	testPayLoad := make([]byte, 1024*1024)
+	if _, err = rand.Read(testPayLoad); err != nil {
+		t.Fatalf("could not read in random data for testing - %v", err)
+	}
+	reader := bytes.NewReader(testPayLoad)
+	_, err = io.Copy(w, reader)
+	if err != nil {
+		t.Fatalf("could not write to temp file testing - %v", err)
+	}
+
+	err = w.Close()
+	if err != nil {
+		t.Fatalf("could not write temp file testing - %v", err)
+	}
+
+	tempName := strings.TrimPrefix(w.Name(), os.TempDir())
+
+	b := &FileBackend{}
+	if err := b.Init(context.Background(), validFileConfig); err != nil {
+		t.Errorf("Expected error %v, got %v", nil, err)
+	} else {
+		r, lerr := b.Get(context.Background(), tempName)
+		if lerr != nil {
+			t.Errorf("Expected nil error, got %v", lerr)
+		} else {
+			testRead, terr := ioutil.ReadAll(r)
+			if terr != nil {
+				t.Errorf("could not read from reader - %v", terr)
+			}
+			// Verify we got the right data back
+			if !reflect.DeepEqual(testPayLoad, testRead) {
+				t.Errorf("read bytes not equal to given bytes")
+			}
+		}
+	}
+}
+
+func TestFileStartUpload(t *testing.T) {
+	testPayLoad, goodVol, badVol, err := prepareTestVols()
+	if err != nil {
+		t.Fatalf("error preparing volumes for testing - %v", err)
+	}
+
+	tempDir, terr := ioutil.TempDir("", "zfsbackupfilebackendtest")
+	if terr != nil {
+		t.Fatalf("error preparing temp dir for rests - %v", terr)
+	}
+	//defer os.RemoveAll(tempDir) // clean up
+
+	config := &BackendConfig{
+		TargetURI:               "file://" + tempDir,
+		MaxBackoffTime:          1 * time.Second,
+		MaxRetryTime:            5 * time.Second,
+		MaxParallelUploads:      5,
+		MaxParallelUploadBuffer: make(chan bool, 1),
+	}
+
+	testCases := []struct {
+		vol   *helpers.VolumeInfo
+		valid func(error) bool
+	}{
+		{
+			vol:   goodVol,
+			valid: nilErrTest,
+		},
+		{
+			vol:   badVol,
+			valid: os.IsNotExist,
+		},
+	}
+
+	goodVol.ObjectName = strings.Join([]string{"this", "is", "just", "a", "test"}, "|") + ".ext"
+	for idx, testCase := range testCases {
+
+		b := &FileBackend{}
+		if err := b.Init(context.Background(), config); err != nil {
+			t.Errorf("%d: Expected error %v, got %v", idx, nil, err)
+		} else {
+			in := make(chan *helpers.VolumeInfo, 1)
+			out := b.StartUpload(context.Background(), in)
+			in <- testCase.vol
+			close(in)
+			outVol := <-out
+			if errResult := b.Wait(); !testCase.valid(errResult) {
+				t.Errorf("%d: error %v id not pass validation function", idx, errResult)
+			} else if errResult == nil {
+				// Verify we have a file written where we expect it to be, read it in to be sure its the contents we want it to be
+				readVerify, rerr := ioutil.ReadFile(filepath.Join(tempDir, testCase.vol.ObjectName))
+				if rerr != nil {
+					t.Errorf("%d: expected file does not exist as we expect it to - %v", idx, rerr)
+				} else {
+					if !reflect.DeepEqual(testPayLoad, readVerify) {
+						t.Errorf("%d: read bytes not equal to given bytes", idx)
+					}
+				}
+				// Verify we got the same vol we passed in!
+				if outVol != testCase.vol {
+					t.Errorf("did not get same volume passed in back out")
+				}
+			}
+		}
+	}
+}

@@ -100,21 +100,22 @@ func (f *FileBackend) uploadWrapper(ctx context.Context, vol *helpers.VolumeInfo
 
 			if err := os.MkdirAll(destinationDir, os.ModePerm); err != nil {
 				helpers.AppLogger.Debugf("file backend: Could not create path %s due to error - %v", destinationDir, err)
-				return nil
+				return err
 			}
 
 			w, err := os.Create(destinationPath)
 			if err != nil {
 				helpers.AppLogger.Debugf("file backend: Could not create file %s due to error - %v", destinationPath, err)
-				return nil
+				return err
 			}
-			defer w.Close()
 
 			_, err = io.Copy(w, vol)
 			if err != nil {
 				helpers.AppLogger.Debugf("file backend: Error while copying volume %s - %v", vol.ObjectName, err)
+				return err
 			}
-			return err
+
+			return w.Close()
 		}
 	}
 }
