@@ -25,12 +25,7 @@ import (
 	"errors"
 	"io"
 	"strings"
-	"sync"
 	"time"
-
-	"golang.org/x/sync/errgroup"
-
-	"github.com/cenkalti/backoff"
 
 	"github.com/someone1/zfsbackup-go/helpers"
 )
@@ -39,14 +34,18 @@ import (
 // It is required that if the OutgoingVolumes channel is non-nil, that the backend send every recieved *helpers.VolumeInfo from the IncomingVolumes
 // channel to the OutgoingVolumes channel only when the backend is
 type Backend interface {
-	Init(ctx context.Context, conf *BackendConfig) error                                       // Verifies settings required for backend are present and valid, does basic initialization of backend
-	StartUpload(ctx context.Context, in <-chan *helpers.VolumeInfo) <-chan *helpers.VolumeInfo // Tells the backend that we will begin the upload process and to ready any upload workers listening on the provided channel. It should return a channel that sends anything that was sent to it after it is 100% done processing it and has released all locks on it.
-	List(ctx context.Context, prefix string) ([]string, error)                                 // Lists all files in the backend
-	Wait() error                                                                               // Wait on all operations to complete, including operations queued up
-	Close() error                                                                              // Cancel any oustanding operations and release any resources in use
-	PreDownload(ctx context.Context, objects []string) error                                   // PreDownload will prepare the provided files for download (think restoring from Glacier to S3)
-	Get(ctx context.Context, filename string) (io.ReadCloser, error)                           // Download the requested file that can be read from the returned ReaderCloser
-	Delete(ctx context.Context, filename string) error                                         // Delete the file specified on the configured backend
+	Init(ctx context.Context, conf *BackendConfig, opts ...Option) error  // Verifies settings required for backend are present and valid, does basic initialization of backend
+	Upload(ctx context.Context, vol *helpers.VolumeInfo) error            // Upload the volume provided
+	List(ctx context.Context, prefix string) ([]string, error)            // Lists all files in the backend
+	Close() error                                                         // Release any resources in use
+	PreDownload(ctx context.Context, objects []string) error              // PreDownload will prepare the provided files for download (think restoring from Glacier to S3)
+	Download(ctx context.Context, filename string) (io.ReadCloser, error) // Download the requested file that can be read from the returned ReaderCloser
+	Delete(ctx context.Context, filename string) error                    // Delete the file specified on the configured backend
+}
+
+// Option lets users inject functionality to specific backends
+type Option interface {
+	Apply(Backend)
 }
 
 // BackendConfig holds values that relate to backend configurations
@@ -56,7 +55,6 @@ type BackendConfig struct {
 	MaxBackoffTime          time.Duration
 	MaxRetryTime            time.Duration
 	TargetURI               string
-	ManifestPrefix          string
 }
 
 var (
@@ -65,13 +63,6 @@ var (
 	// ErrInvalidPrefix is returned when a backend destination is provided with a URI prefix that isn't registered.
 	ErrInvalidPrefix = errors.New("backends: the provided prefix does not exist")
 )
-
-func (b *BackendConfig) getExpBackoff(ctx context.Context) backoff.BackOff {
-	be := backoff.NewExponentialBackOff()
-	be.MaxInterval = b.MaxBackoffTime
-	be.MaxElapsedTime = b.MaxRetryTime
-	return backoff.WithContext(be, ctx)
-}
 
 // GetBackendForURI will try and parse the URI for a matching backend to use.
 func GetBackendForURI(uri string) (Backend, error) {
@@ -92,59 +83,4 @@ func GetBackendForURI(uri string) (Backend, error) {
 	default:
 		return nil, ErrInvalidPrefix
 	}
-}
-
-type uploadWrapper func(ctx context.Context, vol *helpers.VolumeInfo) func() error
-
-func retryUploadOrchestrator(ctx context.Context, in <-chan *helpers.VolumeInfo, u uploadWrapper, conf *BackendConfig, workers int) (<-chan *helpers.VolumeInfo, *errgroup.Group) {
-	out := make(chan *helpers.VolumeInfo)
-	parts := strings.Split(conf.TargetURI, "://")
-	prefix := parts[0]
-	var gwg *errgroup.Group
-	if workers > 1 {
-		gwg, ctx = errgroup.WithContext(ctx)
-	} else {
-		gwg = new(errgroup.Group)
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(workers)
-	for i := 0; i < workers; i++ {
-		gwg.Go(func() error {
-			defer wg.Done()
-			for vol := range in {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				default:
-					helpers.AppLogger.Debugf("%s backend: Uploading volume %s", prefix, vol.ObjectName)
-					operation := u(ctx, vol)
-					if err := backoff.Retry(operation, conf.getExpBackoff(ctx)); err != nil {
-						// TODO: How to handle errors!?
-						helpers.AppLogger.Errorf("%s backend: Failed to upload volume %s due to error: %v", prefix, vol.ObjectName, err)
-						return err
-					}
-					helpers.AppLogger.Debugf("%s backend: Uploaded volume %s", prefix, vol.ObjectName)
-
-					// If the context is cancelled, the out channel might be closed
-					select {
-					case <-ctx.Done():
-						continue
-					default:
-						out <- vol
-					}
-				}
-			}
-			return nil
-		})
-	}
-
-	gwg.Go(func() error {
-		wg.Wait()
-		helpers.AppLogger.Debugf("%s backend: closing out channel.", prefix)
-		close(out)
-		return nil
-	})
-
-	return out, gwg
 }

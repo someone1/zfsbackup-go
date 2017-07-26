@@ -94,12 +94,12 @@ func TestDeleteList(t *testing.T) {
 	}
 }
 
-func TestDeleteGet(t *testing.T) {
+func TestDeleteDownload(t *testing.T) {
 	b := &DeleteBackend{}
 	if err := b.Init(context.Background(), nil); err != nil {
 		t.Errorf("Expected error %v, got %v", nil, err)
 	} else {
-		_, err = b.Get(context.Background(), "")
+		_, err = b.Download(context.Background(), "")
 		if err == nil {
 			t.Errorf("Expected non-nil error, got %v", err)
 		}
@@ -133,26 +133,16 @@ func TestDeleteStartUpload(t *testing.T) {
 	}
 
 	for idx, testCase := range testCases {
-
 		b := &DeleteBackend{}
 		if err := b.Init(context.Background(), config); err != nil {
 			t.Errorf("%d: Expected error %v, got %v", idx, nil, err)
 		} else {
-			in := make(chan *helpers.VolumeInfo, 1)
-			out := b.StartUpload(context.Background(), in)
-			in <- testCase.vol
-			close(in)
-			outVol := <-out
-			if errResult := b.Wait(); !testCase.valid(errResult) {
+			if errResult := b.Upload(context.Background(), testCase.vol); !testCase.valid(errResult) {
 				t.Errorf("%d: error %v id not pass validation function", idx, errResult)
 			} else if errResult == nil {
 				err = testCase.vol.OpenVolume()
 				if !os.IsNotExist(err) {
 					t.Errorf("expected not exist error, got %v instead", err)
-				}
-				// Verify we got the same vol we passed in!
-				if outVol != testCase.vol {
-					t.Errorf("did not get same volume passed in back out")
 				}
 			}
 		}

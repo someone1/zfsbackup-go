@@ -135,7 +135,7 @@ func Receive(jobInfo *helpers.JobInfo) {
 				defer close(sequence.c)
 				for {
 					retry := func() bool {
-						r, rerr := backend.Get(ctx, sequence.volume.ObjectName)
+						r, rerr := backend.Download(ctx, sequence.volume.ObjectName)
 						if rerr != nil {
 							helpers.AppLogger.Infof("Could not get %s due to error %v. Retrying.", sequence.volume.ObjectName, rerr)
 							return true
@@ -279,7 +279,7 @@ func receiveStream(ctx context.Context, cmd *exec.Cmd, j *helpers.JobInfo, c <-c
 }
 
 func downloadTo(ctx context.Context, backend backends.Backend, objectName, toPath string) {
-	r, rerr := backend.Get(ctx, objectName)
+	r, rerr := backend.Download(ctx, objectName)
 	if rerr == nil {
 		defer r.Close()
 		out, oerr := os.Create(toPath)

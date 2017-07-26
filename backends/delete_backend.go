@@ -25,8 +25,6 @@ import (
 	"errors"
 	"io"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/someone1/zfsbackup-go/helpers"
 )
 
@@ -36,11 +34,10 @@ const DeleteBackendPrefix = "delete"
 // DeleteBackend is a special Backend used to delete the files after they've been uploaded
 type DeleteBackend struct {
 	conf *BackendConfig
-	wg   *errgroup.Group
 }
 
 // Init will initialize the DeleteBackend (aka do nothing)
-func (d *DeleteBackend) Init(ctx context.Context, conf *BackendConfig) error {
+func (d *DeleteBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Option) error {
 	d.conf = conf
 	return nil
 }
@@ -55,24 +52,14 @@ func (d *DeleteBackend) PreDownload(ctx context.Context, objects []string) error
 	return errors.New("delete backend: PreDownload is invalid for this backend")
 }
 
-// Get should not be used with this backend
-func (d *DeleteBackend) Get(ctx context.Context, filename string) (io.ReadCloser, error) {
+// Download should not be used with this backend
+func (d *DeleteBackend) Download(ctx context.Context, filename string) (io.ReadCloser, error) {
 	return nil, errors.New("delete backend: Get is invalid for this backend")
-}
-
-// Wait will wait until all volumes have been deleted and processed from the incoming
-// channel.
-func (d *DeleteBackend) Wait() error {
-	if d.wg != nil {
-		return d.wg.Wait()
-	}
-	return nil
 }
 
 // Close will signal the listener to stop processing the contents of the incoming channel
 // and to close the outgoing channel.
 func (d *DeleteBackend) Close() error {
-	_ = d.Wait()
 	return nil
 }
 
@@ -81,25 +68,12 @@ func (d *DeleteBackend) List(ctx context.Context, prefix string) ([]string, erro
 	return nil, errors.New("delete backend: List is invalid for this backend")
 }
 
-// StartUpload will run the channel listener on the incoming channel
-func (d *DeleteBackend) StartUpload(ctx context.Context, in <-chan *helpers.VolumeInfo) <-chan *helpers.VolumeInfo {
-	out, wgw := retryUploadOrchestrator(ctx, in, d.uploadWrapper, d.conf, 1)
-	d.wg = wgw
-	return out
-}
-
-func (d *DeleteBackend) uploadWrapper(ctx context.Context, vol *helpers.VolumeInfo) func() error {
-	return func() error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			if err := vol.DeleteVolume(); err != nil {
-				helpers.AppLogger.Errorf("delete backend: could not delete volume %s due to error: %v", vol.ObjectName, err)
-				return err
-			}
-			helpers.AppLogger.Debugf("delete backend: Deleted Volume %s", vol.ObjectName)
-		}
-		return nil
+func (d *DeleteBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
+	if err := vol.DeleteVolume(); err != nil {
+		helpers.AppLogger.Errorf("delete backend: could not delete volume %s due to error: %v", vol.ObjectName, err)
+		return err
 	}
+	helpers.AppLogger.Debugf("delete backend: Deleted Volume %s", vol.ObjectName)
+
+	return nil
 }

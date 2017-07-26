@@ -34,6 +34,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff"
 	"github.com/dustin/go-humanize"
 	"github.com/miolini/datacounter"
 	"golang.org/x/sync/errgroup"
@@ -212,10 +213,10 @@ func Backup(jobInfo *helpers.JobInfo) error {
 	for _, destination := range jobInfo.Destinations {
 		backend := prepareBackend(ctx, jobInfo, destination, uploadBuffer)
 		_ = getCacheDir(destination)
-		out := backend.StartUpload(ctx, channels[len(channels)-1])
+		out, waitgroup := retryUploadChainer(ctx, channels[len(channels)-1], backend, jobInfo, destination)
 		channels = append(channels, out)
 		usedBackends = append(usedBackends, backend)
-		group.Go(backend.Wait)
+		group.Go(waitgroup.Wait)
 	}
 
 	// Create and copy a copy of the manifest during the backup procedure for future retry requests
@@ -494,4 +495,66 @@ func tryResume(ctx context.Context, j *helpers.JobInfo) error {
 		helpers.AppLogger.Infof("Will be resuming previous backup attempt.")
 	}
 	return nil
+}
+
+func retryUploadChainer(ctx context.Context, in <-chan *helpers.VolumeInfo, b backends.Backend, j *helpers.JobInfo, dest string) (<-chan *helpers.VolumeInfo, *errgroup.Group) {
+	out := make(chan *helpers.VolumeInfo)
+	parts := strings.Split(dest, "://")
+	prefix := parts[0]
+	var gwg *errgroup.Group
+	if j.MaxParallelUploads > 1 {
+		gwg, ctx = errgroup.WithContext(ctx)
+	} else {
+		gwg = new(errgroup.Group)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(j.MaxParallelUploads)
+	for i := 0; i < j.MaxParallelUploads; i++ {
+		gwg.Go(func() error {
+			defer wg.Done()
+			for vol := range in {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				default:
+					helpers.AppLogger.Debugf("%s backend: Uploading volume %s", prefix, vol.ObjectName)
+					// Prepare the backoff retryer (forces the user configured retry options across all backends)
+					be := backoff.NewExponentialBackOff()
+					be.MaxInterval = j.MaxBackoffTime
+					be.MaxElapsedTime = j.MaxRetryTime
+					retryconf := backoff.WithContext(be, ctx)
+
+					operation := volUploadWrapper(ctx, b, vol)
+					if err := backoff.Retry(operation, retryconf); err != nil {
+						helpers.AppLogger.Errorf("%s backend: Failed to upload volume %s due to error: %v", prefix, vol.ObjectName, err)
+						return err
+					}
+					helpers.AppLogger.Debugf("%s backend: Uploaded volume %s", prefix, vol.ObjectName)
+				}
+			}
+			return nil
+		})
+	}
+
+	gwg.Go(func() error {
+		wg.Wait()
+		helpers.AppLogger.Debugf("%s backend: closing out channel.", prefix)
+		close(out)
+		return nil
+	})
+
+	return out, gwg
+}
+
+func volUploadWrapper(ctx context.Context, b backends.Backend, vol *helpers.VolumeInfo) func() error {
+	return func() error {
+		if err := vol.OpenVolume(); err != nil {
+			helpers.AppLogger.Warningf("Error while opening volume %s - %v", vol.ObjectName, err)
+			return err
+		}
+		defer vol.Close()
+
+		return b.Upload(ctx, vol)
+	}
 }

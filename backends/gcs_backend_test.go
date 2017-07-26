@@ -26,7 +26,6 @@ import (
 	"crypto/rand"
 	"io"
 	"io/ioutil"
-	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -95,7 +94,6 @@ func TestGCSGetBackendForURI(t *testing.T) {
 	}
 }
 
-// Bit of a misnomer as we aren't testing the actual Init function
 func TestGCSInit(t *testing.T) {
 	testCases := []struct {
 		testcase gcsTestCase
@@ -141,14 +139,13 @@ func TestGCSInit(t *testing.T) {
 
 	for idx, c := range testCases {
 		b := &GoogleCloudStorageBackend{}
-		if err := b.initWithClient(context.Background(), c.testcase.conf, c.testcase.client); err != c.output {
+		if err := b.Init(context.Background(), c.testcase.conf, WithGCSClient(c.testcase.client)); err != c.output {
 			t.Errorf("%d: Expected error %v, got %v", idx, c.output, err)
 		}
 		if b.prefix != c.prefix {
 			t.Errorf("%d: Expected prefix %v, got %v", idx, c.prefix, b.prefix)
 		}
 	}
-
 }
 func TestGCSClose(t *testing.T) {
 	testCases := []struct {
@@ -176,7 +173,7 @@ func TestGCSClose(t *testing.T) {
 
 	for idx, c := range testCases {
 		b := &GoogleCloudStorageBackend{}
-		if err := b.initWithClient(context.Background(), c.testcase.conf, c.testcase.client); err != nil {
+		if err := b.Init(context.Background(), c.testcase.conf, WithGCSClient(c.testcase.client)); err != nil {
 			t.Errorf("%d: error setting up backend - %v", idx, err)
 		} else {
 			err = b.Close()
@@ -212,7 +209,7 @@ func TestGCSPreDownload(t *testing.T) {
 
 	for idx, c := range testCases {
 		b := &GoogleCloudStorageBackend{}
-		if err := b.initWithClient(context.Background(), c.testcase.conf, c.testcase.client); err != nil {
+		if err := b.Init(context.Background(), c.testcase.conf, WithGCSClient(c.testcase.client)); err != nil {
 			t.Errorf("%d: error setting up backend - %v", idx, err)
 		} else {
 			err = b.PreDownload(context.Background(), nil)
@@ -248,7 +245,7 @@ func TestGCSDelete(t *testing.T) {
 
 	for idx, c := range testCases {
 		b := &GoogleCloudStorageBackend{}
-		if err := b.initWithClient(context.Background(), c.testcase.conf, c.testcase.client); err != nil {
+		if err := b.Init(context.Background(), c.testcase.conf, WithGCSClient(c.testcase.client)); err != nil {
 			t.Errorf("%d: error setting up backend - %v", idx, err)
 		} else {
 			err = b.Delete(context.Background(), "")
@@ -296,7 +293,7 @@ func TestGCSList(t *testing.T) {
 
 	for idx, c := range testCases {
 		b := &GoogleCloudStorageBackend{}
-		if err := b.initWithClient(context.Background(), c.conf, c.client); err != nil {
+		if err := b.Init(context.Background(), c.conf, WithGCSClient(c.client)); err != nil {
 			t.Errorf("%d: error setting up backend - %v", idx, err)
 		} else {
 			list, lerr := b.List(context.Background(), "")
@@ -310,7 +307,7 @@ func TestGCSList(t *testing.T) {
 	}
 }
 
-func TestGCSGet(t *testing.T) {
+func TestGCSDownload(t *testing.T) {
 	testPayLoad := make([]byte, 1024*1024)
 	if _, err := rand.Read(testPayLoad); err != nil {
 		t.Fatalf("could not read in random data for testing - %v", err)
@@ -342,10 +339,10 @@ func TestGCSGet(t *testing.T) {
 
 	for idx, c := range testCases {
 		b := &GoogleCloudStorageBackend{}
-		if err := b.initWithClient(context.Background(), c.conf, c.client); err != nil {
+		if err := b.Init(context.Background(), c.conf, WithGCSClient(c.client)); err != nil {
 			t.Errorf("%d: error setting up backend - %v", idx, err)
 		} else {
-			r, lerr := b.Get(context.Background(), "")
+			r, lerr := b.Download(context.Background(), "")
 			if lerr != c.output {
 				t.Errorf("%d: Expected error %v, got %v", idx, c.output, err)
 			}
@@ -365,7 +362,7 @@ func TestGCSGet(t *testing.T) {
 	}
 }
 
-func TestGCSStartUpload(t *testing.T) {
+func TestGCSUpload(t *testing.T) {
 	testPayLoad, goodvol, badvol, err := prepareTestVols()
 	if err != nil {
 		t.Fatalf("error preparing volume for testing - %v", err)
@@ -423,32 +420,28 @@ func TestGCSStartUpload(t *testing.T) {
 					MaxParallelUploadBuffer: make(chan bool, 1),
 				},
 			},
-			errTest: os.IsNotExist,
+			errTest: nonNilErrTest,
 			vol:     badvol,
 		},
 	}
 
+	if err = goodvol.OpenVolume(); err != nil {
+		t.Errorf("could not open good volume due to error %v", err)
+	}
+
 	for idx, c := range testCases {
 		b := &GoogleCloudStorageBackend{}
-		if err := b.initWithClient(context.Background(), c.conf, c.client); err != nil {
+		if err := b.Init(context.Background(), c.conf, WithGCSClient(c.client)); err != nil {
 			t.Errorf("%d: error setting up backend - %v", idx, err)
 		} else {
+			goodvol.Seek(0, io.SeekStart)
 			readVerify.Reset()
-			in := make(chan *helpers.VolumeInfo, 1)
-			out := b.StartUpload(context.Background(), in)
-			in <- c.vol
-			close(in)
-			outVol := <-out
-			if errResult := b.Wait(); !c.errTest(errResult) {
+			if errResult := b.Upload(context.Background(), c.vol); !c.errTest(errResult) {
 				t.Errorf("%d: Unexpected error, got %v", idx, errResult)
 			} else if errResult == nil {
 				testRead := readVerify.Bytes()
 				if !reflect.DeepEqual(testPayLoad, testRead) {
 					t.Errorf("%d: read bytes not equal to given bytes", idx)
-				}
-				// Verify we got the same vol we passed in!
-				if outVol != c.vol {
-					t.Errorf("%d: did not get same volume passed in back out", idx)
 				}
 			}
 		}

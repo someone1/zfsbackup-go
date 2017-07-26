@@ -80,6 +80,7 @@ func nilErrTest(e error) bool              { return e == nil }
 func errTestErrTest(e error) bool          { return e == errTest }
 func errInvalidPrefixErrTest(e error) bool { return e == ErrInvalidPrefix }
 func errInvalidURIErrTest(e error) bool    { return e == ErrInvalidURI }
+func nonNilErrTest(e error) bool {return e != nil }
 
 func prepareTestVols() (payload []byte, goodVol *helpers.VolumeInfo, badVol *helpers.VolumeInfo, err error) {
 	payload = make([]byte, 10*1024*1024)

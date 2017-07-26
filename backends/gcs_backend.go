@@ -27,14 +27,13 @@ import (
 	"strings"
 
 	"cloud.google.com/go/storage"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
 	"github.com/someone1/zfsbackup-go/helpers"
 )
 
-// GoogleCloudStorageBackendPrefix is the URI prefix used for the GoogleCloudStorageBackend.
+// GoogleCloudStorageBackendPrefix is the URI prefix used for the GoogleCloudStorageBackeng.
 const GoogleCloudStorageBackendPrefix = "gs"
 
 // Authenticate: https://developers.google.com/identity/protocols/application-default-credentials
@@ -42,15 +41,16 @@ const GoogleCloudStorageBackendPrefix = "gs"
 // GoogleCloudStorageBackend integrates with Google Cloud Storage.
 type GoogleCloudStorageBackend struct {
 	conf       *BackendConfig
-	wg         *errgroup.Group
-	client     clientInterface
+	client     GCSClientInterface
 	prefix     string
 	bucketName string
 }
 
+// GCSClientInterface is used to abstract the underlysing GCS client
+// so we can mockup tests.
 // Maybe they'll figure out something better eventually...
 // // https://code-review.googlesource.com/#/c/12970/
-type clientInterface interface {
+type GCSClientInterface interface {
 	BucketExists(context.Context, string) error
 	DeleteObject(c context.Context, b, o string) error
 	NewWriter(c context.Context, b, o string, h uint32) io.WriteCloser
@@ -106,106 +106,94 @@ func (g *gcsClient) ListBucket(ctx context.Context, bucket, prefix string) ([]st
 	return l, nil
 }
 
-// Init will initialize the GoogleCloudStorageBackend and verify the provided URI is valid/exists.
-func (d *GoogleCloudStorageBackend) Init(ctx context.Context, conf *BackendConfig) error {
-	client, err := storage.NewClient(ctx, option.WithScopes(storage.ScopeReadWrite))
-	if err != nil {
-		return err
-	}
+type withGCSClient struct{ client GCSClientInterface }
 
-	return d.initWithClient(ctx, conf, &gcsClient{client})
+func (w withGCSClient) Apply(b Backend) {
+	switch v := b.(type) {
+	case *GoogleCloudStorageBackend:
+		v.client = w.client
+	}
 }
 
-func (d *GoogleCloudStorageBackend) initWithClient(ctx context.Context, conf *BackendConfig, client clientInterface) error {
-	d.conf = conf
+// WithGCSClient will override an GCS backend's underlying API client with the one provideg.
+// Primarily used to inject mock clients for testing.
+func WithGCSClient(c GCSClientInterface) Option {
+	return withGCSClient{c}
+}
 
-	cleanPrefix := strings.TrimPrefix(d.conf.TargetURI, "gs://")
-	if cleanPrefix == d.conf.TargetURI {
+// Init will initialize the GoogleCloudStorageBackend and verify the provided URI is valid/exists.
+func (g *GoogleCloudStorageBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Option) error {
+	g.conf = conf
+
+	cleanPrefix := strings.TrimPrefix(g.conf.TargetURI, "gs://")
+	if cleanPrefix == g.conf.TargetURI {
 		return ErrInvalidURI
 	}
 
 	uriParts := strings.Split(cleanPrefix, "/")
 
-	d.bucketName = uriParts[0]
+	g.bucketName = uriParts[0]
 	if len(uriParts) > 1 {
-		d.prefix = strings.Join(uriParts[1:], "/")
+		g.prefix = strings.Join(uriParts[1:], "/")
 	}
 
-	d.client = client
-	return d.client.BucketExists(ctx, d.bucketName)
-}
+	for _, opt := range opts {
+		opt.Apply(g)
+	}
 
-// StartUpload will begin the GCS upload workers
-func (d *GoogleCloudStorageBackend) StartUpload(ctx context.Context, in <-chan *helpers.VolumeInfo) <-chan *helpers.VolumeInfo {
-	out, wgw := retryUploadOrchestrator(ctx, in, d.uploadWrapper, d.conf, d.conf.MaxParallelUploads)
-	d.wg = wgw
-	return out
-}
-
-func (d *GoogleCloudStorageBackend) uploadWrapper(ctx context.Context, vol *helpers.VolumeInfo) func() error {
-	return func() error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			d.conf.MaxParallelUploadBuffer <- true
-			defer func() {
-				<-d.conf.MaxParallelUploadBuffer
-			}()
-
-			if err := vol.OpenVolume(); err != nil {
-				helpers.AppLogger.Debugf("gs backend: Error while opening volume %s - %v", vol.ObjectName, err)
-				return err
-			}
-			defer vol.Close()
-			objName := d.prefix + vol.ObjectName
-			w := d.client.NewWriter(ctx, d.bucketName, objName, vol.CRC32CSum32)
-			defer w.Close()
-			_, err := io.Copy(w, vol)
-			if err != nil {
-				helpers.AppLogger.Debugf("gs backend: Error while uploading volume %s - %v", vol.ObjectName, err)
-			}
+	if g.client == nil {
+		client, err := storage.NewClient(ctx, option.WithScopes(storage.ScopeReadWrite))
+		if err != nil {
 			return err
 		}
+		g.client = &gcsClient{client}
 	}
+
+	return g.client.BucketExists(ctx, g.bucketName)
+}
+
+func (g *GoogleCloudStorageBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
+	g.conf.MaxParallelUploadBuffer <- true
+	defer func() {
+		<-g.conf.MaxParallelUploadBuffer
+	}()
+
+	objName := g.prefix + vol.ObjectName
+	w := g.client.NewWriter(ctx, g.bucketName, objName, vol.CRC32CSum32)
+	defer w.Close()
+	_, err := io.Copy(w, vol)
+	if err != nil {
+		helpers.AppLogger.Debugf("gs backend: Error while uploading volume %s - %v", vol.ObjectName, err)
+	}
+	return err
+
 }
 
 // Delete will delete the given object from the configured bucket
-func (d *GoogleCloudStorageBackend) Delete(ctx context.Context, filename string) error {
-	return d.client.DeleteObject(ctx, d.bucketName, filename)
+func (g *GoogleCloudStorageBackend) Delete(ctx context.Context, filename string) error {
+	return g.client.DeleteObject(ctx, g.bucketName, filename)
 }
 
-// PreDownload does nothing on this backend.
-func (d *GoogleCloudStorageBackend) PreDownload(ctx context.Context, objects []string) error {
+// PreDownload does nothing on this backeng.
+func (g *GoogleCloudStorageBackend) PreDownload(ctx context.Context, objects []string) error {
 	return nil
 }
 
-// Get will download the requseted object
-func (d *GoogleCloudStorageBackend) Get(ctx context.Context, filename string) (io.ReadCloser, error) {
-	return d.client.NewReader(ctx, d.bucketName, filename)
+// Download will download the requseted object
+func (g *GoogleCloudStorageBackend) Download(ctx context.Context, filename string) (io.ReadCloser, error) {
+	return g.client.NewReader(ctx, g.bucketName, filename)
 }
 
-// Wait will wait until all volumes have been processed from the incoming
-// channel.
-func (d *GoogleCloudStorageBackend) Wait() error {
-	if d.wg != nil {
-		return d.wg.Wait()
-	}
-	return nil
-}
-
-// Close will wait for any ongoing operations to complete then close and release any resources used by the GCS backend.
-func (d *GoogleCloudStorageBackend) Close() error {
-	_ = d.Wait()
-
+// Close will wait for any ongoing operations to complete then close and release any resources used by the GCS backeng.
+func (g *GoogleCloudStorageBackend) Close() error {
 	// Close the storage client as well
-	err := d.client.Close()
-	d.client = nil
+	err := g.client.Close()
+	g.client = nil
 	return err
 }
 
 // List will iterate through all objects in the configured GCS bucket and return
 // a list of object names.
-func (d *GoogleCloudStorageBackend) List(ctx context.Context, prefix string) ([]string, error) {
-	return d.client.ListBucket(ctx, d.bucketName, prefix)
+func (g *GoogleCloudStorageBackend) List(ctx context.Context, prefix string) ([]string, error) {
+	return g.client.ListBucket(ctx, g.bucketName, prefix)
 }

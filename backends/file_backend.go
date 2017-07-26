@@ -27,8 +27,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/someone1/zfsbackup-go/helpers"
 )
 
@@ -38,12 +36,11 @@ const FileBackendPrefix = "file"
 // FileBackend provides a local destination storage option.
 type FileBackend struct {
 	conf      *BackendConfig
-	wg        *errgroup.Group
 	localPath string
 }
 
 // Init will initialize the FileBackend and verify the provided URI is valid/exists.
-func (f *FileBackend) Init(ctx context.Context, conf *BackendConfig) error {
+func (f *FileBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Option) error {
 	f.conf = conf
 
 	cleanPrefix := strings.TrimPrefix(f.conf.TargetURI, "file://")
@@ -72,52 +69,33 @@ func (f *FileBackend) Init(ctx context.Context, conf *BackendConfig) error {
 	return nil
 }
 
-// StartUpload will begin the file copy workers
-func (f *FileBackend) StartUpload(ctx context.Context, in <-chan *helpers.VolumeInfo) <-chan *helpers.VolumeInfo {
-	out, wgw := retryUploadOrchestrator(ctx, in, f.uploadWrapper, f.conf, f.conf.MaxParallelUploads)
-	f.wg = wgw
-	return out
-}
+func (f *FileBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
+	f.conf.MaxParallelUploadBuffer <- true
+	defer func() {
+		<-f.conf.MaxParallelUploadBuffer
+	}()
 
-func (f *FileBackend) uploadWrapper(ctx context.Context, vol *helpers.VolumeInfo) func() error {
-	return func() error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			f.conf.MaxParallelUploadBuffer <- true
-			defer func() {
-				<-f.conf.MaxParallelUploadBuffer
-			}()
+	destinationPath := filepath.Join(f.localPath, vol.ObjectName)
+	destinationDir := filepath.Dir(destinationPath)
 
-			if err := vol.OpenVolume(); err != nil {
-				helpers.AppLogger.Debugf("file backend: Error while opening volume %s - %v", vol.ObjectName, err)
-				return err
-			}
-			defer vol.Close()
-			destinationPath := filepath.Join(f.localPath, vol.ObjectName)
-			destinationDir := filepath.Dir(destinationPath)
-
-			if err := os.MkdirAll(destinationDir, os.ModePerm); err != nil {
-				helpers.AppLogger.Debugf("file backend: Could not create path %s due to error - %v", destinationDir, err)
-				return err
-			}
-
-			w, err := os.Create(destinationPath)
-			if err != nil {
-				helpers.AppLogger.Debugf("file backend: Could not create file %s due to error - %v", destinationPath, err)
-				return err
-			}
-
-			_, err = io.Copy(w, vol)
-			if err != nil {
-				helpers.AppLogger.Debugf("file backend: Error while copying volume %s - %v", vol.ObjectName, err)
-				return err
-			}
-
-			return w.Close()
-		}
+	if err := os.MkdirAll(destinationDir, os.ModePerm); err != nil {
+		helpers.AppLogger.Debugf("file backend: Could not create path %s due to error - %v", destinationDir, err)
+		return err
 	}
+
+	w, err := os.Create(destinationPath)
+	if err != nil {
+		helpers.AppLogger.Debugf("file backend: Could not create file %s due to error - %v", destinationPath, err)
+		return err
+	}
+
+	_, err = io.Copy(w, vol)
+	if err != nil {
+		helpers.AppLogger.Debugf("file backend: Error while copying volume %s - %v", vol.ObjectName, err)
+		return err
+	}
+
+	return w.Close()
 }
 
 // Delete will delete the given object from the provided path
@@ -130,23 +108,13 @@ func (f *FileBackend) PreDownload(ctx context.Context, objects []string) error {
 	return nil
 }
 
-// Get will open the file for reading
-func (f *FileBackend) Get(ctx context.Context, filename string) (io.ReadCloser, error) {
+// Download will open the file for reading
+func (f *FileBackend) Download(ctx context.Context, filename string) (io.ReadCloser, error) {
 	return os.Open(filepath.Join(f.localPath, filename))
-}
-
-// Wait will wait until all volumes have been processed from the incoming
-// channel.
-func (f *FileBackend) Wait() error {
-	if f.wg != nil {
-		return f.wg.Wait()
-	}
-	return nil
 }
 
 // Close will release any resources used by the file backend
 func (f *FileBackend) Close() error {
-	_ = f.Wait()
 	return nil
 }
 

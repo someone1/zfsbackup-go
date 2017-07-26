@@ -196,7 +196,7 @@ func TestFileList(t *testing.T) {
 	}
 }
 
-func TestFileGet(t *testing.T) {
+func TestFileDownload(t *testing.T) {
 	// Let's create a file to Get
 	w, err := ioutil.TempFile("", "filebackendtestfile")
 	if err != nil {
@@ -225,7 +225,7 @@ func TestFileGet(t *testing.T) {
 	if err := b.Init(context.Background(), validFileConfig); err != nil {
 		t.Errorf("Expected error %v, got %v", nil, err)
 	} else {
-		r, lerr := b.Get(context.Background(), tempName)
+		r, lerr := b.Download(context.Background(), tempName)
 		if lerr != nil {
 			t.Errorf("Expected nil error, got %v", lerr)
 		} else {
@@ -241,7 +241,7 @@ func TestFileGet(t *testing.T) {
 	}
 }
 
-func TestFileStartUpload(t *testing.T) {
+func TestFileUpload(t *testing.T) {
 	testPayLoad, goodVol, badVol, err := prepareTestVols()
 	if err != nil {
 		t.Fatalf("error preparing volumes for testing - %v", err)
@@ -271,24 +271,21 @@ func TestFileStartUpload(t *testing.T) {
 		},
 		{
 			vol:   badVol,
-			valid: os.IsNotExist,
+			valid: nonNilErrTest,
 		},
+	}
+	if err = goodVol.OpenVolume(); err != nil {
+		t.Errorf("could not open good volume due to error %v", err)
 	}
 
 	goodVol.ObjectName = strings.Join([]string{"this", "is", "just", "a", "test"}, "|") + ".ext"
 	for idx, testCase := range testCases {
-
 		b := &FileBackend{}
 		if err := b.Init(context.Background(), config); err != nil {
 			t.Errorf("%d: Expected error %v, got %v", idx, nil, err)
 		} else {
-			in := make(chan *helpers.VolumeInfo, 1)
-			out := b.StartUpload(context.Background(), in)
-			in <- testCase.vol
-			close(in)
-			outVol := <-out
-			if errResult := b.Wait(); !testCase.valid(errResult) {
-				t.Errorf("%d: error %v id not pass validation function", idx, errResult)
+			if errResult := b.Upload(context.Background(), testCase.vol); !testCase.valid(errResult) {
+				t.Errorf("%d: error %v did not pass validation function", idx, errResult)
 			} else if errResult == nil {
 				// Verify we have a file written where we expect it to be, read it in to be sure its the contents we want it to be
 				readVerify, rerr := ioutil.ReadFile(filepath.Join(tempDir, testCase.vol.ObjectName))
@@ -298,10 +295,6 @@ func TestFileStartUpload(t *testing.T) {
 					if !reflect.DeepEqual(testPayLoad, readVerify) {
 						t.Errorf("%d: read bytes not equal to given bytes", idx)
 					}
-				}
-				// Verify we got the same vol we passed in!
-				if outVol != testCase.vol {
-					t.Errorf("did not get same volume passed in back out")
 				}
 			}
 		}
