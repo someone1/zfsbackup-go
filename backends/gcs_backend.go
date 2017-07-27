@@ -152,6 +152,7 @@ func (g *GoogleCloudStorageBackend) Init(ctx context.Context, conf *BackendConfi
 	return g.client.BucketExists(ctx, g.bucketName)
 }
 
+// Upload will upload the provided VolumeInfo to Google's Cloud Storage
 func (g *GoogleCloudStorageBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
 	g.conf.MaxParallelUploadBuffer <- true
 	defer func() {

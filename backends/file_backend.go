@@ -69,6 +69,7 @@ func (f *FileBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Opt
 	return nil
 }
 
+// Upload will copy the provided VolumeInfo to the backend's configured local destination
 func (f *FileBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
 	f.conf.MaxParallelUploadBuffer <- true
 	defer func() {

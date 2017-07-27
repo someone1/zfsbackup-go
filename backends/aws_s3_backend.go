@@ -51,7 +51,7 @@ const AWSS3BackendPrefix = "s3"
 // AWSS3Backend integrates with Amazon Web Services' S3.
 type AWSS3Backend struct {
 	conf       *BackendConfig
-	mutex      *sync.Mutex
+	mutex      sync.Mutex
 	client     s3iface.S3API
 	uploader   s3manageriface.UploaderAPI
 	prefix     string
@@ -258,6 +258,7 @@ func (a *AWSS3Backend) PreDownload(ctx context.Context, keys []string) error {
 	if restoreTier == "" {
 		restoreTier = s3.TierBulk
 	}
+	var bytesToRestore int64
 	helpers.AppLogger.Debugf("s3 backend: will use the %s restore tier when trying to restore from Glacier.", restoreTier)
 	for _, key := range keys {
 		resp, err := a.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
@@ -267,8 +268,9 @@ func (a *AWSS3Backend) PreDownload(ctx context.Context, keys []string) error {
 		if err != nil {
 			return err
 		}
-		if resp.StorageClass == aws.String(s3.ObjectStorageClassGlacier) {
+		if *resp.StorageClass == s3.ObjectStorageClassGlacier {
 			helpers.AppLogger.Debugf("s3 backend: key %s will be restored from the Glacier storage class.", key)
+			bytesToRestore += *resp.ContentLength
 			// Let's Start a restore
 			toRestore = append(toRestore, key)
 			_, rerr := a.client.RestoreObjectWithContext(ctx, &s3.RestoreObjectInput{
@@ -289,21 +291,30 @@ func (a *AWSS3Backend) PreDownload(ctx context.Context, keys []string) error {
 			}
 		}
 	}
-	// Now wait for the objects to be restored
-	for idx := 0; idx < len(toRestore); idx++ {
-		key := toRestore[idx]
-		resp, err := a.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
-			Bucket: aws.String(a.bucketName),
-			Key:    aws.String(key),
-		})
-		if err != nil {
-			return err
-		}
-		if resp.Restore == aws.String("ongoing-request=\"true\"") {
-			time.Sleep(5 * time.Minute)
-			idx--
-		} else {
-			helpers.AppLogger.Debugf("s3 backend: key %s restored.", key)
+	if len(toRestore) > 0 {
+		helpers.AppLogger.Infof("s3 backend: waiting for %d objects to restore from Glacier totaling %d bytes (this could take several hours)", len(toRestore), bytesToRestore)
+		// Now wait for the objects to be restored
+		backoffCount := 1
+		for idx := 0; idx < len(toRestore); idx++ {
+			key := toRestore[idx]
+			resp, err := a.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+				Bucket: aws.String(a.bucketName),
+				Key:    aws.String(key),
+			})
+			if err != nil {
+				return err
+			}
+			if *resp.Restore == "ongoing-request=\"true\"" {
+				time.Sleep(time.Duration(backoffCount) * time.Minute)
+				idx--
+				backoffCount++
+				if backoffCount > 10 {
+					backoffCount = 10
+				}
+			} else {
+				backoffCount = 1
+				helpers.AppLogger.Debugf("s3 backend: key %s restored.", key)
+			}
 		}
 	}
 	return nil
@@ -357,7 +368,7 @@ func (a *AWSS3Backend) List(ctx context.Context, prefix string) ([]string, error
 			ContinuationToken: resp.NextContinuationToken,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("gs backend: could not list bucket due to error - %v", err)
+			return nil, fmt.Errorf("s3 backend: could not list bucket due to error - %v", err)
 		}
 	}
 

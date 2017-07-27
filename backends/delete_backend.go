@@ -68,6 +68,7 @@ func (d *DeleteBackend) List(ctx context.Context, prefix string) ([]string, erro
 	return nil, errors.New("delete backend: List is invalid for this backend")
 }
 
+// Upload will delete the provided volume, usually found in a temporary folder
 func (d *DeleteBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
 	if err := vol.DeleteVolume(); err != nil {
 		helpers.AppLogger.Errorf("delete backend: could not delete volume %s due to error: %v", vol.ObjectName, err)

@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"io"
 	"testing"
@@ -80,7 +81,11 @@ func nilErrTest(e error) bool              { return e == nil }
 func errTestErrTest(e error) bool          { return e == errTest }
 func errInvalidPrefixErrTest(e error) bool { return e == ErrInvalidPrefix }
 func errInvalidURIErrTest(e error) bool    { return e == ErrInvalidURI }
-func nonNilErrTest(e error) bool {return e != nil }
+func nonNilErrTest(e error) bool           { return e != nil }
+func invalidByteErrTest(e error) bool {
+	_, ok := e.(hex.InvalidByteError)
+	return ok
+}
 
 func prepareTestVols() (payload []byte, goodVol *helpers.VolumeInfo, badVol *helpers.VolumeInfo, err error) {
 	payload = make([]byte, 10*1024*1024)
