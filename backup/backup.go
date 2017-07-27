@@ -37,6 +37,7 @@ import (
 	"github.com/cenkalti/backoff"
 	"github.com/dustin/go-humanize"
 	"github.com/miolini/datacounter"
+	"github.com/nightlyone/lockfile"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/someone1/zfsbackup-go/backends"
@@ -164,6 +165,21 @@ func Backup(jobInfo *helpers.JobInfo) error {
 		}
 	}
 
+	// Make sure nobody else is working on the same volume/dataset we are!
+	lockFilePath := filepath.Join(os.TempDir(), fmt.Sprintf("zfsbackup.%x.lck", []byte(jobInfo.VolumeName)))
+	lock, lferr := lockfile.New(lockFilePath)
+	if lferr != nil {
+		helpers.AppLogger.Errorf("Cannot init lock. reason: %v", lferr)
+		return lferr
+	}
+	lferr = lock.TryLock()
+
+	if lferr != nil {
+		helpers.AppLogger.Errorf("Cannot lock %q, reason: %v. If no other execution of %s is working on %s, you may forcefully remove the lock file located %s.", lock, lferr, helpers.ProgramName, jobInfo.VolumeName, lockFilePath)
+		return lferr
+	}
+	defer lock.Unlock()
+
 	fileBufferSize := jobInfo.MaxFileBuffer
 	if fileBufferSize == 0 {
 		fileBufferSize = 1
@@ -206,7 +222,7 @@ func Backup(jobInfo *helpers.JobInfo) error {
 	channels = append(channels, stepCh)
 
 	if jobInfo.MaxFileBuffer != 0 {
-		jobInfo.Destinations = append(jobInfo.Destinations, backends.DeleteBackendPrefix)
+		jobInfo.Destinations = append(jobInfo.Destinations, backends.DeleteBackendPrefix+"://")
 	}
 
 	// Prepare backends and setup plumbing
