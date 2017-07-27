@@ -320,7 +320,7 @@ func (a *AWSS3Backend) PreDownload(ctx context.Context, keys []string) error {
 	return nil
 }
 
-// Download will download the requseted object
+// Download will download the requseted object which can be read from the returned io.ReadCloser
 func (a *AWSS3Backend) Download(ctx context.Context, key string) (io.ReadCloser, error) {
 	resp, err := a.client.GetObjectWithContext(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(a.bucketName),
@@ -332,15 +332,15 @@ func (a *AWSS3Backend) Download(ctx context.Context, key string) (io.ReadCloser,
 	return resp.Body, nil
 }
 
-// Close will wait for all operations to complete then release any resources used by the AWS backend.
+// Close will release any resources used by the AWS S3 backend.
 func (a *AWSS3Backend) Close() error {
 	a.client = nil
 	a.uploader = nil
 	return nil
 }
 
-// List will iterate through all objects in the configured GCS bucket and return
-// a list of object names.
+// List will iterate through all objects in the configured AWS S3 bucket and return
+// a list of keys, filtering by the provided prefix.
 func (a *AWSS3Backend) List(ctx context.Context, prefix string) ([]string, error) {
 	resp, err := a.client.ListObjectsV2WithContext(ctx, &s3.ListObjectsV2Input{
 		Bucket:  aws.String(a.bucketName),

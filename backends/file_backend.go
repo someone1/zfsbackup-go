@@ -114,7 +114,7 @@ func (f *FileBackend) Download(ctx context.Context, filename string) (io.ReadClo
 	return os.Open(filepath.Join(f.localPath, filename))
 }
 
-// Close will release any resources used by the file backend
+// Close does nothing for this backend.
 func (f *FileBackend) Close() error {
 	return nil
 }

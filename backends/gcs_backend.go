@@ -33,7 +33,7 @@ import (
 	"github.com/someone1/zfsbackup-go/helpers"
 )
 
-// GoogleCloudStorageBackendPrefix is the URI prefix used for the GoogleCloudStorageBackeng.
+// GoogleCloudStorageBackendPrefix is the URI prefix used for the GoogleCloudStorageBackend.
 const GoogleCloudStorageBackendPrefix = "gs"
 
 // Authenticate: https://developers.google.com/identity/protocols/application-default-credentials
@@ -115,7 +115,7 @@ func (w withGCSClient) Apply(b Backend) {
 	}
 }
 
-// WithGCSClient will override an GCS backend's underlying API client with the one provideg.
+// WithGCSClient will override an GCS backend's underlying API client with the one provided.
 // Primarily used to inject mock clients for testing.
 func WithGCSClient(c GCSClientInterface) Option {
 	return withGCSClient{c}
@@ -175,17 +175,17 @@ func (g *GoogleCloudStorageBackend) Delete(ctx context.Context, filename string)
 	return g.client.DeleteObject(ctx, g.bucketName, filename)
 }
 
-// PreDownload does nothing on this backeng.
+// PreDownload does nothing on this backend.
 func (g *GoogleCloudStorageBackend) PreDownload(ctx context.Context, objects []string) error {
 	return nil
 }
 
-// Download will download the requseted object
+// Download will download the requseted object which can be read from the return io.ReadCloser.
 func (g *GoogleCloudStorageBackend) Download(ctx context.Context, filename string) (io.ReadCloser, error) {
 	return g.client.NewReader(ctx, g.bucketName, filename)
 }
 
-// Close will wait for any ongoing operations to complete then close and release any resources used by the GCS backeng.
+// Close will release any resources used by the GCS backend.
 func (g *GoogleCloudStorageBackend) Close() error {
 	// Close the storage client as well
 	err := g.client.Close()
@@ -194,7 +194,7 @@ func (g *GoogleCloudStorageBackend) Close() error {
 }
 
 // List will iterate through all objects in the configured GCS bucket and return
-// a list of object names.
+// a list of object names, filtering by the prefix provided.
 func (g *GoogleCloudStorageBackend) List(ctx context.Context, prefix string) ([]string, error) {
 	return g.client.ListBucket(ctx, g.bucketName, prefix)
 }

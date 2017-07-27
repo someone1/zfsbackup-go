@@ -57,8 +57,7 @@ func (d *DeleteBackend) Download(ctx context.Context, filename string) (io.ReadC
 	return nil, errors.New("delete backend: Get is invalid for this backend")
 }
 
-// Close will signal the listener to stop processing the contents of the incoming channel
-// and to close the outgoing channel.
+// Close does nothing for this backend.
 func (d *DeleteBackend) Close() error {
 	return nil
 }

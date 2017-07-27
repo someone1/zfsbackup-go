@@ -31,15 +31,13 @@ import (
 )
 
 // Backend is an interface type that defines the functions and functionality required for different backend implementations.
-// It is required that if the OutgoingVolumes channel is non-nil, that the backend send every recieved *helpers.VolumeInfo from the IncomingVolumes
-// channel to the OutgoingVolumes channel only when the backend is
 type Backend interface {
 	Init(ctx context.Context, conf *BackendConfig, opts ...Option) error  // Verifies settings required for backend are present and valid, does basic initialization of backend
 	Upload(ctx context.Context, vol *helpers.VolumeInfo) error            // Upload the volume provided
-	List(ctx context.Context, prefix string) ([]string, error)            // Lists all files in the backend
+	List(ctx context.Context, prefix string) ([]string, error)            // Lists all files in the backend, filtering by the provided prefix.
 	Close() error                                                         // Release any resources in use
 	PreDownload(ctx context.Context, objects []string) error              // PreDownload will prepare the provided files for download (think restoring from Glacier to S3)
-	Download(ctx context.Context, filename string) (io.ReadCloser, error) // Download the requested file that can be read from the returned ReaderCloser
+	Download(ctx context.Context, filename string) (io.ReadCloser, error) // Download the requested file that can be read from the returned io.ReaderCloser
 	Delete(ctx context.Context, filename string) error                    // Delete the file specified on the configured backend
 }
 
