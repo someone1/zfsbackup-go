@@ -321,7 +321,7 @@ func saveManifest(ctx context.Context, j *helpers.JobInfo, final bool) (*helpers
 		return nil, err
 	}
 	for _, destination := range j.Destinations {
-		if destination == backends.DeleteBackendPrefix {
+		if destination == backends.DeleteBackendPrefix+"://" {
 			continue
 		}
 		safeFolder := fmt.Sprintf("%x", md5.Sum([]byte(destination)))
@@ -534,7 +534,7 @@ func retryUploadChainer(ctx context.Context, in <-chan *helpers.VolumeInfo, b ba
 				case <-ctx.Done():
 					return ctx.Err()
 				default:
-					helpers.AppLogger.Debugf("%s backend: Uploading volume %s", prefix, vol.ObjectName)
+					helpers.AppLogger.Debugf("%s backend: Processing volume %s", prefix, vol.ObjectName)
 					// Prepare the backoff retryer (forces the user configured retry options across all backends)
 					be := backoff.NewExponentialBackOff()
 					be.MaxInterval = j.MaxBackoffTime
@@ -546,7 +546,8 @@ func retryUploadChainer(ctx context.Context, in <-chan *helpers.VolumeInfo, b ba
 						helpers.AppLogger.Errorf("%s backend: Failed to upload volume %s due to error: %v", prefix, vol.ObjectName, err)
 						return err
 					}
-					helpers.AppLogger.Debugf("%s backend: Uploaded volume %s", prefix, vol.ObjectName)
+					helpers.AppLogger.Debugf("%s backend: Processed volume %s", prefix, vol.ObjectName)
+					out <- vol
 				}
 			}
 			return nil
