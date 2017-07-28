@@ -109,15 +109,17 @@ func (j *JobInfo) TotalBytesWritten() uint64 {
 func (j *JobInfo) String() string {
 	var output []string
 	output = append(output, fmt.Sprintf("Volume: %s", j.VolumeName))
+	output = append(output, fmt.Sprintf("Snapshot: %s (%v)", j.BaseSnapshot.Name, j.BaseSnapshot.CreationTime))
 	if j.IncrementalSnapshot.Name != "" {
-		output = append(output, fmt.Sprintf("Snapshot: %s (%v)\nIncremental From Snapshot: %s (%v)", j.BaseSnapshot.Name, j.BaseSnapshot.CreationTime, j.IncrementalSnapshot.Name, j.IncrementalSnapshot.CreationTime))
-	} else {
-		output = append(output, fmt.Sprintf("Snapshot: %s (%v)", j.BaseSnapshot.Name, j.BaseSnapshot.CreationTime))
+		output = append(output, fmt.Sprintf("Incremental From Snapshot: %s (%v)", j.IncrementalSnapshot.Name, j.IncrementalSnapshot.CreationTime))
+		output = append(output, fmt.Sprintf("Intermediary: %v", j.IntermediaryIncremental))
 	}
+	output = append(output, fmt.Sprintf("Replication: %v", j.Replication))
 	totalWrittenBytes := j.TotalBytesWritten()
-	output = append(output, fmt.Sprintf("Archives: %d - %d (%s)\nVolume Size (Raw): %d bytes (%s)", len(j.Volumes), totalWrittenBytes, humanize.IBytes(totalWrittenBytes), j.ZFSStreamBytes, humanize.IBytes(j.ZFSStreamBytes)))
+	output = append(output, fmt.Sprintf("Archives: %d - %d bytes (%s)", len(j.Volumes), totalWrittenBytes, humanize.IBytes(totalWrittenBytes)))
+	output = append(output, fmt.Sprintf("Volume Size (Raw): %d bytes (%s)", j.ZFSStreamBytes, humanize.IBytes(j.ZFSStreamBytes)))
 	output = append(output, fmt.Sprintf("Uploaded: %v (took %v)\n\n", j.StartTime, j.EndTime.Sub(j.StartTime)))
-	return strings.Join(output, "\n")
+	return strings.Join(output, "\n\t")
 }
 
 // TotalBytesStreamedAndVols will sum up the streamed bytes of all underlying Volumes to give a total

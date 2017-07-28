@@ -42,13 +42,11 @@ var (
 
 // sendCmd represents the send command
 var sendCmd = &cobra.Command{
-	Use:    "send [flags] filesystem|volume|snapshot uri(s)",
-	Short:  "send will backup of a ZFS volume similar to how the \"zfs send\" command works.",
-	Long:   `send take a subset of the`,
-	PreRun: validateSendFlags,
-	Run: func(cmd *cobra.Command, args []string) {
-		updateJobInfo(args)
-
+	Use:     "send [flags] filesystem|volume|snapshot uri(s)",
+	Short:   "send will backup of a ZFS volume similar to how the \"zfs send\" command works.",
+	Long:    `send take a subset of the`,
+	PreRunE: validateSendFlags,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		helpers.AppLogger.Infof("Limiting the number of active files to %d", jobInfo.MaxFileBuffer)
 		helpers.AppLogger.Infof("Limiting the number of parallel uploads to %d", jobInfo.MaxParallelUploads)
 		helpers.AppLogger.Infof("Max Backoff Time will be %v", jobInfo.MaxBackoffTime)
@@ -61,7 +59,7 @@ var sendCmd = &cobra.Command{
 			helpers.AppLogger.Infof("Will be signed from %s", jobInfo.SignFrom)
 		}
 
-		backup.Backup(&jobInfo)
+		return backup.Backup(context.Background(), &jobInfo)
 	},
 }
 
@@ -91,7 +89,7 @@ func init() {
 	sendCmd.Flags().StringVar(&jobInfo.Separator, "separator", "|", "the separator to use between object component names.")
 }
 
-func updateJobInfo(args []string) {
+func updateJobInfo(args []string) error {
 	jobInfo.StartTime = time.Now()
 	jobInfo.Version = helpers.VersionNumber
 
@@ -106,17 +104,17 @@ func updateJobInfo(args []string) {
 
 	if len(jobInfo.Destinations) > 1 && jobInfo.MaxFileBuffer == 0 {
 		helpers.AppLogger.Errorf("Specifying multiple destinations and a MaxFileBuffer size of 0 is unsupported.")
-		panic(helpers.Exit{Code: 10})
+		return errInvalidInput
 	}
 
 	for _, destination := range jobInfo.Destinations {
 		_, err := backends.GetBackendForURI(destination)
 		if err == backends.ErrInvalidPrefix {
 			helpers.AppLogger.Errorf("Unsupported prefix provided in destination URI, was given %s", destination)
-			panic(helpers.Exit{Code: 10})
+			return err
 		} else if err == backends.ErrInvalidURI {
 			helpers.AppLogger.Errorf("Unsupported destination URI, was given %s", destination)
-			panic(helpers.Exit{Code: 10})
+			return err
 		}
 	}
 
@@ -124,13 +122,13 @@ func updateJobInfo(args []string) {
 	if !jobInfo.Full && !jobInfo.Incremental && jobInfo.FullIfOlderThan == -1*time.Minute {
 		if len(parts) != 2 {
 			helpers.AppLogger.Errorf("Invalid base snapshot provided. Expected format <volume>@<snapshot>, got %s instead", args[0])
-			panic(helpers.Exit{Code: 10})
+			return errInvalidInput
 		}
 		jobInfo.BaseSnapshot = helpers.SnapshotInfo{Name: parts[1]}
 		creationTime, err := helpers.GetCreationDate(context.TODO(), args[0])
 		if err != nil {
 			helpers.AppLogger.Errorf("Error trying to get creation date of specified base snapshot - %v", err)
-			panic(helpers.Exit{Code: 10})
+			return err
 		}
 		jobInfo.BaseSnapshot.CreationTime = creationTime
 
@@ -141,7 +139,7 @@ func updateJobInfo(args []string) {
 			creationTime, err = helpers.GetCreationDate(context.TODO(), fmt.Sprintf("%s@%s", jobInfo.VolumeName, jobInfo.IncrementalSnapshot.Name))
 			if err != nil {
 				helpers.AppLogger.Errorf("Error trying to get creation date of specified incremental snapshot - %v", err)
-				panic(helpers.Exit{Code: 10})
+				return err
 			}
 			jobInfo.IncrementalSnapshot.CreationTime = creationTime
 		}
@@ -159,33 +157,37 @@ func updateJobInfo(args []string) {
 		}
 		if onlyOneCheck > 1 {
 			helpers.AppLogger.Errorf("Please specify only one \"smart\" option at a time")
-			panic(helpers.Exit{Code: 11})
+			return errInvalidInput
 		}
 		if len(parts) != 1 {
 			helpers.AppLogger.Errorf("When using a smart option, please only specify the volume to backup, do not include any snapshot information.")
-			panic(helpers.Exit{Code: 10})
+			return errInvalidInput
 		}
 		if err := backup.ProcessSmartOptions(&jobInfo); err != nil {
 			helpers.AppLogger.Errorf("Error while trying to process smart option - %v", err)
-			panic(helpers.Exit{Code: 10})
+			return errInvalidInput
 		}
 		helpers.AppLogger.Debugf("Utilizing smart option.")
 	}
+
+	return nil
 }
 
-func validateSendFlags(cmd *cobra.Command, args []string) {
+func validateSendFlags(cmd *cobra.Command, args []string) error {
 	if len(args) != 2 {
 		cmd.Usage()
-		panic(helpers.Exit{Code: 10})
+		return errInvalidInput
 	}
 
 	if jobInfo.IncrementalSnapshot.Name != "" && fullIncremental != "" {
 		helpers.AppLogger.Errorf("The flags -i and -I are mutually exclusive. Please specify only one of these flags.")
-		panic(helpers.Exit{Code: 10})
+		return errInvalidInput
 	}
 
 	if err := jobInfo.ValidateSendFlags(); err != nil {
 		helpers.AppLogger.Error(err)
-		panic(helpers.Exit{Code: 10})
+		return err
 	}
+
+	return updateJobInfo(args)
 }

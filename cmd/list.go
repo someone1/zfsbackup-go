@@ -21,21 +21,22 @@
 package cmd
 
 import (
-	"github.com/someone1/zfsbackup-go/backup"
-	"github.com/someone1/zfsbackup-go/helpers"
+	"context"
 
 	"github.com/spf13/cobra"
+
+	"github.com/someone1/zfsbackup-go/backup"
 )
 
 // listCmd represents the list command
 var listCmd = &cobra.Command{
-	Use:    "list [flags] uri",
-	Short:  "List all backup sets found at the provided target.",
-	Long:   `List all backup sets found at the provided target.`,
-	PreRun: validateListFlags,
-	Run: func(cmd *cobra.Command, args []string) {
+	Use:     "list [flags] uri",
+	Short:   "List all backup sets found at the provided target.",
+	Long:    `List all backup sets found at the provided target.`,
+	PreRunE: validateListFlags,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		jobInfo.Destinations = []string{args[0]}
-		backup.List(&jobInfo)
+		return backup.List(context.Background(), &jobInfo)
 	},
 }
 
@@ -43,9 +44,10 @@ func init() {
 	RootCmd.AddCommand(listCmd)
 }
 
-func validateListFlags(cmd *cobra.Command, args []string) {
+func validateListFlags(cmd *cobra.Command, args []string) error {
 	if len(args) != 1 {
 		cmd.Usage()
-		panic(helpers.Exit{Code: 10})
+		return errInvalidInput
 	}
+	return nil
 }

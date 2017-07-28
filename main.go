@@ -21,15 +21,13 @@
 package main
 
 import (
+	"os"
+
 	"github.com/someone1/zfsbackup-go/cmd"
-	"github.com/someone1/zfsbackup-go/helpers"
 )
 
 func main() {
-	defer helpers.HandleExit()
-
 	if err := cmd.RootCmd.Execute(); err != nil {
-		helpers.AppLogger.Error(err)
-		panic(helpers.Exit{Code: -1})
+		os.Exit(-1)
 	}
 }

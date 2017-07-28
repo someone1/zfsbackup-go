@@ -33,7 +33,7 @@ import (
 	"github.com/someone1/zfsbackup-go/helpers"
 )
 
-func prepareBackend(ctx context.Context, j *helpers.JobInfo, backendURI string, uploadBuffer chan bool) backends.Backend {
+func prepareBackend(ctx context.Context, j *helpers.JobInfo, backendURI string, uploadBuffer chan bool) (backends.Backend, error) {
 	helpers.AppLogger.Debugf("Initializing Backend %s", backendURI)
 	conf := &backends.BackendConfig{
 		MaxParallelUploadBuffer: uploadBuffer,
@@ -45,36 +45,31 @@ func prepareBackend(ctx context.Context, j *helpers.JobInfo, backendURI string, 
 
 	backend, err := backends.GetBackendForURI(backendURI)
 	if err != nil {
-		helpers.AppLogger.Errorf("Could not get backend for %s due to error - %v.", backendURI, err)
-		panic(helpers.Exit{Code: 6})
+		return nil, err
 	}
 
-	if berr := backend.Init(ctx, conf); berr != nil {
-		helpers.AppLogger.Errorf("Could not initialize backend due to error - %v.", berr)
-		panic(helpers.Exit{Code: 7})
-	}
+	err = backend.Init(ctx, conf)
 
-	return backend
+	return backend, err
 }
 
-func getCacheDir(backendURI string) string {
+func getCacheDir(backendURI string) (string, error) {
 	safeFolder := fmt.Sprintf("%x", md5.Sum([]byte(backendURI)))
 	dest := filepath.Join(helpers.WorkingDir, "cache", safeFolder)
-	if oerr := os.MkdirAll(dest, os.ModePerm); oerr != nil {
-		helpers.AppLogger.Errorf("Could not create cache directory %s due to an error: %v", dest, oerr)
-		panic(helpers.Exit{Code: 10})
+	oerr := os.MkdirAll(dest, os.ModePerm)
+	if oerr != nil {
+		return "", fmt.Errorf("could not create cache directory %s due to an error: %v", dest, oerr)
 	}
 
-	return dest
+	return dest, nil
 }
 
 // Returns local manifest paths that exist in the backend and those that do not
-func syncCache(ctx context.Context, j *helpers.JobInfo, localCache string, backend backends.Backend) ([]string, []string) {
+func syncCache(ctx context.Context, j *helpers.JobInfo, localCache string, backend backends.Backend) ([]string, []string, error) {
 	// List all manifests at the destination
 	manifests, merr := backend.List(ctx, j.ManifestPrefix)
 	if merr != nil {
-		helpers.AppLogger.Errorf("Could not list manifest files from the backed due to error - %v.", merr)
-		panic(helpers.Exit{Code: 203})
+		return nil, nil, fmt.Errorf("could not list manifest files from the backed due to error - %v", merr)
 	}
 
 	// Make it safe for local file system storage
@@ -86,8 +81,7 @@ func syncCache(ctx context.Context, j *helpers.JobInfo, localCache string, backe
 	// Check what manifests we have locally, and if we are missing any, download them
 	files, ferr := ioutil.ReadDir(localCache)
 	if ferr != nil {
-		helpers.AppLogger.Errorf("Could not list files from the local cache dir due to error - %v.", ferr)
-		panic(helpers.Exit{Code: 204})
+		return nil, nil, fmt.Errorf("could not list files from the local cache dir due to error - %v", ferr)
 	}
 
 	var localOnlyFiles []string
@@ -113,8 +107,7 @@ func syncCache(ctx context.Context, j *helpers.JobInfo, localCache string, backe
 
 	pderr := backend.PreDownload(ctx, manifests)
 	if pderr != nil {
-		helpers.AppLogger.Errorf("Could not prepare manifests for download due to error - %v", pderr)
-		panic(helpers.Exit{Code: 208})
+		return nil, nil, fmt.Errorf("could not prepare manifests for download due to error - %v", pderr)
 	}
 
 	if len(manifests) > 0 {
@@ -128,5 +121,5 @@ func syncCache(ctx context.Context, j *helpers.JobInfo, localCache string, backe
 
 	safeManifests = append(safeManifests, foundFiles...)
 
-	return safeManifests, localOnlyFiles
+	return safeManifests, localOnlyFiles, nil
 }

@@ -21,32 +21,32 @@
 package cmd
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 
 	"github.com/someone1/zfsbackup-go/backup"
-	"github.com/someone1/zfsbackup-go/helpers"
 )
 
 // verifyCmd represents the verify command
 var verifyCmd = &cobra.Command{
-	Use:    "verify filesystem|volume|snapshot uri",
-	Short:  "Verify will ensure that the backupset for the given snapshot exists in the target",
-	Long:   `Verify will ensure that the backupset for the given snapshot exists in the target`,
-	PreRun: validateVerifyFlags,
-	Run: func(cmd *cobra.Command, args []string) {
-		updateJobInfo(args)
-		backup.Verify(&jobInfo)
+	Use:     "verify filesystem|volume|snapshot uri",
+	Short:   "Verify will ensure that the backupset for the given snapshot exists in the target",
+	Long:    `Verify will ensure that the backupset for the given snapshot exists in the target`,
+	PreRunE: validateVerifyFlags,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return backup.Verify(context.Background(), &jobInfo)
 	},
 }
 
 func init() {
 	RootCmd.AddCommand(verifyCmd)
-
 }
 
-func validateVerifyFlags(cmd *cobra.Command, args []string) {
+func validateVerifyFlags(cmd *cobra.Command, args []string) error {
 	if len(args) != 2 {
 		cmd.Usage()
-		panic(helpers.Exit{Code: 10})
+		return errInvalidInput
 	}
+	return updateJobInfo(args)
 }

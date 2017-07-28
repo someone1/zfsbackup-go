@@ -29,8 +29,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/cenkalti/backoff"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/someone1/zfsbackup-go/backends"
 	"github.com/someone1/zfsbackup-go/helpers"
@@ -41,23 +43,33 @@ type downloadSequence struct {
 	c      chan<- *helpers.VolumeInfo
 }
 
-func Receive(jobInfo *helpers.JobInfo) {
-	defer helpers.HandleExit()
-	ctx, cancel := context.WithCancel(context.Background())
+func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
+	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
 	defer os.RemoveAll(helpers.BackupTempdir)
 
+	target := jobInfo.Destinations[0]
+
 	// Prepare the backend client
-	backend := prepareBackend(ctx, jobInfo, jobInfo.Destinations[0], nil)
+	backend, berr := prepareBackend(ctx, jobInfo, target, nil)
+	if berr != nil {
+		helpers.AppLogger.Errorf("Could not initialize backend for target %s due to error - %v.", target, berr)
+		return berr
+	}
+	defer backend.Close()
 
 	// Get the local cache dir
-	localCachePath := getCacheDir(jobInfo.Destinations[0])
+	localCachePath, cerr := getCacheDir(target)
+	if cerr != nil {
+		helpers.AppLogger.Errorf("Could not get cache dir for target %s due to error - %v.", target, cerr)
+		return cerr
+	}
 
 	// Compute the Manifest File
 	tempManifest, err := helpers.CreateManifestVolume(ctx, jobInfo)
 	if err != nil {
 		helpers.AppLogger.Errorf("Error trying to create manifest volume - %v", err)
-		panic(helpers.Exit{Code: 5})
+		return err
 	}
 	tempManifest.Close()
 	tempManifest.DeleteVolume()
@@ -71,7 +83,7 @@ func Receive(jobInfo *helpers.JobInfo) {
 			err = backend.PreDownload(ctx, []string{tempManifest.ObjectName})
 			if err != nil {
 				helpers.AppLogger.Errorf("Error trying to pre download manifest volume - %v", err)
-				panic(helpers.Exit{Code: 502})
+				return err
 			}
 			// Try and download the manifest file from the backend
 			downloadTo(ctx, backend, tempManifest.ObjectName, safeManifestPath)
@@ -79,7 +91,7 @@ func Receive(jobInfo *helpers.JobInfo) {
 		}
 		if err != nil {
 			helpers.AppLogger.Errorf("Error trying to retrieve manifest volume - %v", err)
-			panic(helpers.Exit{Code: 501})
+			return err
 		}
 	}
 
@@ -97,7 +109,7 @@ func Receive(jobInfo *helpers.JobInfo) {
 	err = backend.PreDownload(ctx, toDownload)
 	if err != nil {
 		helpers.AppLogger.Errorf("Error trying to pre download backup set volumes - %v", err)
-		panic(helpers.Exit{Code: 503})
+		return err
 	}
 	toDownload = nil
 
@@ -122,110 +134,137 @@ func Receive(jobInfo *helpers.JobInfo) {
 	}
 	close(downloadChannel)
 
-	var wg sync.WaitGroup
-	wg.Add(fileBufferSize)
+	var wg *errgroup.Group
+	wg, ctx = errgroup.WithContext(ctx)
 
 	// Kick off go routines to download
 	for i := 0; i < fileBufferSize; i++ {
-		go func() {
-			buf := make([]byte, 1024*1024)
-			defer wg.Done()
-			for sequence := range downloadChannel {
-				bufferChannel <- nil
-				defer close(sequence.c)
-				for {
-					retry := func() bool {
-						r, rerr := backend.Download(ctx, sequence.volume.ObjectName)
-						if rerr != nil {
-							helpers.AppLogger.Infof("Could not get %s due to error %v. Retrying.", sequence.volume.ObjectName, rerr)
-							return true
-						}
-						defer r.Close()
-						vol, err := helpers.CreateSimpleVolume(ctx, usePipe)
-						if err != nil {
-							helpers.AppLogger.Noticef("Could not create temporary file to download %s due to error - %v. Retrying.", sequence.volume.ObjectName, err)
-							return true
-						}
-
-						defer vol.Close()
-						vol.ObjectName = sequence.volume.ObjectName
-						if usePipe {
-							sequence.c <- vol
-						}
-
-						_, err = io.CopyBuffer(vol, r, buf)
-						if err != nil {
-							helpers.AppLogger.Noticef("Could not download file %s to the local cache dir due to error - %v. Retrying.", sequence.volume.ObjectName, err)
-							vol.Close()
-							vol.DeleteVolume()
-							if usePipe {
-								helpers.AppLogger.Errorf("Cannot retry when using no file buffer, aborting.")
-								panic(helpers.Exit{Code: 504})
-							}
-						}
-						vol.Close()
-
-						// Verify the SHA256 Hash, if it doesn't match, ditch it!
-						if vol.SHA256Sum != sequence.volume.SHA256Sum {
-							helpers.AppLogger.Infof("Hash mismatch for %s, got %s but expected %s. Retrying.", sequence.volume.ObjectName, vol.SHA256Sum, sequence.volume.SHA256Sum)
-							if usePipe {
-								helpers.AppLogger.Errorf("Cannot retry when using no file buffer, aborting.")
-								panic(helpers.Exit{Code: 504})
-							}
-							vol.DeleteVolume()
-							return true
-						}
-						if !usePipe {
-							sequence.c <- vol
-						}
-						helpers.AppLogger.Debugf("Downloaded %s.", sequence.volume.ObjectName)
-
-						return false
-					}()
-					if !retry {
-						break
+		wg.Go(func() error {
+			for {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case sequence, ok := <-downloadChannel:
+					if !ok {
+						return nil
 					}
-					time.Sleep(5 * time.Second)
+					defer close(sequence.c)
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case bufferChannel <- nil:
+					}
+
+					be := backoff.NewExponentialBackOff()
+					be.MaxInterval = jobInfo.MaxBackoffTime
+					be.MaxElapsedTime = jobInfo.MaxRetryTime
+					retryconf := backoff.WithContext(be, ctx)
+
+					operation := func() error {
+						return processSequence(ctx, sequence, backend, usePipe)
+					}
+
+					if err := backoff.Retry(operation, retryconf); err != nil {
+						helpers.AppLogger.Errorf("Failed to download volume %s due to error: %v, aborting...", sequence.volume.ObjectName, err)
+						return err
+					}
 				}
 			}
-		}()
+		})
 	}
 
 	// Order the downloaded Volumes
 	orderedVolumes := make(chan *helpers.VolumeInfo, len(toDownload))
-	go func() {
+	wg.Go(func() error {
+		defer close(orderedVolumes)
 		for _, c := range orderedChannels {
-			orderedVolumes <- <-c
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case orderedVolumes <- <-c:
+				continue
+			}
 		}
-		close(orderedVolumes)
-	}()
+		return nil
+	})
 
 	// Prepare ZFS Receive command
-	var rwg sync.WaitGroup
-	rwg.Add(1)
 	cmd := helpers.GetZFSReceiveCommand(ctx, jobInfo)
-	go receiveStream(ctx, cmd, manifest, orderedVolumes, bufferChannel, &rwg)
+	wg.Go(func() error {
+		return receiveStream(ctx, cmd, manifest, orderedVolumes, bufferChannel)
+	})
 
 	// Wait for processes to finish
-	wg.Wait()
-	backend.Close()
-	rwg.Wait()
+	err = wg.Wait()
+	if err != nil {
+		helpers.AppLogger.Errorf("There was an error during the restore process, aborting: %v", err)
+	}
 
-	helpers.AppLogger.Noticef("Done. Elapsed Time: %v", time.Now().Sub(jobInfo.StartTime))
+	helpers.AppLogger.Noticef("Done. Elapsed Time: %v", time.Since(jobInfo.StartTime))
+	return nil
 }
 
-func receiveStream(ctx context.Context, cmd *exec.Cmd, j *helpers.JobInfo, c <-chan *helpers.VolumeInfo, buffer <-chan interface{}, wg *sync.WaitGroup) {
-	defer wg.Done()
+func processSequence(ctx context.Context, sequence downloadSequence, backend backends.Backend, usePipe bool) error {
+	r, rerr := backend.Download(ctx, sequence.volume.ObjectName)
+	if rerr != nil {
+		helpers.AppLogger.Infof("Could not get %s due to error %v.", sequence.volume.ObjectName, rerr)
+		return rerr
+	}
+	defer r.Close()
+	vol, err := helpers.CreateSimpleVolume(ctx, usePipe)
+	if err != nil {
+		helpers.AppLogger.Noticef("Could not create temporary file to download %s due to error - %v.", sequence.volume.ObjectName, err)
+		return err
+	}
+
+	defer vol.Close()
+	vol.ObjectName = sequence.volume.ObjectName
+	if usePipe {
+		sequence.c <- vol
+	}
+
+	_, err = io.Copy(vol, r)
+	if err != nil {
+		helpers.AppLogger.Noticef("Could not download file %s to the local cache dir due to error - %v.", sequence.volume.ObjectName, err)
+		vol.Close()
+		vol.DeleteVolume()
+		if usePipe {
+			return backoff.Permanent(fmt.Errorf("cannot retry when using no file buffer, aborting"))
+		}
+		return err
+	}
+	vol.Close()
+
+	// Verify the SHA256 Hash, if it doesn't match, ditch it!
+	if vol.SHA256Sum != sequence.volume.SHA256Sum {
+		helpers.AppLogger.Infof("Hash mismatch for %s, got %s but expected %s. Retrying.", sequence.volume.ObjectName, vol.SHA256Sum, sequence.volume.SHA256Sum)
+		if usePipe {
+			return backoff.Permanent(fmt.Errorf("cannot retry when using no file buffer, aborting"))
+		}
+		vol.DeleteVolume()
+		return fmt.Errorf("SHA256 hash mismatch for %s, got %s but expected %s", sequence.volume.ObjectName, vol.SHA256Sum, sequence.volume.SHA256Sum)
+	}
+	if !usePipe {
+		sequence.c <- vol
+	}
+	helpers.AppLogger.Debugf("Downloaded %s.", sequence.volume.ObjectName)
+
+	return nil
+}
+
+func receiveStream(ctx context.Context, cmd *exec.Cmd, j *helpers.JobInfo, c <-chan *helpers.VolumeInfo, buffer <-chan interface{}) error {
 	cin, cout := io.Pipe()
 	cmd.Stdin = cin
 	cmd.Stderr = os.Stderr
+	var group *errgroup.Group
+	group, ctx = errgroup.WithContext(ctx)
 
 	// Start the zfs receive command
 	helpers.AppLogger.Infof("Starting zfs receive command: %s", strings.Join(cmd.Args, " "))
 	err := cmd.Start()
 	if err != nil {
 		helpers.AppLogger.Errorf("Error starting zfs command - %v", err)
-		panic(helpers.Exit{Code: 11})
+		return err
 	}
 
 	defer func() {
@@ -244,19 +283,20 @@ func receiveStream(ctx context.Context, cmd *exec.Cmd, j *helpers.JobInfo, c <-c
 	}()
 
 	// Extract ZFS stream from files and send it to the zfs command
-	go func() {
+	group.Go(func() error {
+		defer cout.Close()
 		buf := make([]byte, 1024*1024)
 		for vol := range c {
 			helpers.AppLogger.Debugf("Processing %s.", vol.ObjectName)
 			eerr := vol.Extract(ctx, j)
 			if eerr != nil {
 				helpers.AppLogger.Errorf("Error while trying to read from volume %s - %v", vol.ObjectName, eerr)
-				panic(helpers.Exit{Code: 507})
+				return err
 			}
-			_, err = io.CopyBuffer(cout, vol, buf)
-			if err != nil {
-				helpers.AppLogger.Errorf("Error while trying to read from volume %s - %v", vol.ObjectName, err)
-				panic(helpers.Exit{Code: 508})
+			_, eerr = io.CopyBuffer(cout, vol, buf)
+			if eerr != nil {
+				helpers.AppLogger.Errorf("Error while trying to read from volume %s - %v", vol.ObjectName, eerr)
+				return eerr
 			}
 			vol.Close()
 			vol.DeleteVolume()
@@ -264,40 +304,44 @@ func receiveStream(ctx context.Context, cmd *exec.Cmd, j *helpers.JobInfo, c <-c
 			vol = nil
 			<-buffer
 		}
-		cout.Close()
-	}()
+		return nil
+	})
+
+	group.Go(func() error {
+		return cmd.Wait()
+	})
 
 	// Wait for the command to finish
-	err = cmd.Wait()
+	err = group.Wait()
 	if err != nil {
 		helpers.AppLogger.Errorf("Error waiting for zfs command to finish - %v", err)
-		panic(helpers.Exit{Code: 12})
+		return err
 	}
 	helpers.AppLogger.Infof("zfs recieve completed without error")
 
-	return
+	return nil
 }
 
-func downloadTo(ctx context.Context, backend backends.Backend, objectName, toPath string) {
+func downloadTo(ctx context.Context, backend backends.Backend, objectName, toPath string) error {
 	r, rerr := backend.Download(ctx, objectName)
 	if rerr == nil {
 		defer r.Close()
 		out, oerr := os.Create(toPath)
 		if oerr != nil {
 			helpers.AppLogger.Errorf("Could not create file in the local cache dir due to error - %v.", oerr)
-			panic(helpers.Exit{Code: 205})
+			return oerr
 		}
 		defer out.Close()
 
 		_, err := io.Copy(out, r)
 		if err != nil {
 			helpers.AppLogger.Errorf("Could not download file %s to the local cache dir due to error - %v.", objectName, err)
-			panic(helpers.Exit{Code: 206})
+			return err
 		}
 		helpers.AppLogger.Debugf("Downloaded %s to local cache.", objectName)
 	} else {
 		helpers.AppLogger.Errorf("Could not download file %s to the local cache dir due to error - %v.", objectName, rerr)
-		panic(helpers.Exit{Code: 208})
+		return rerr
 	}
-
+	return nil
 }

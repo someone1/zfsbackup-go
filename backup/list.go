@@ -34,19 +34,33 @@ import (
 // List will sync the manifests found in the target destination to the local cache
 // and then read and output the manifest information describing the backup sets
 // found in the target destination.
-func List(jobInfo *helpers.JobInfo) {
-	defer helpers.HandleExit()
-	ctx, cancel := context.WithCancel(context.Background())
+// TODO: Group by volume name?
+func List(pctx context.Context, jobInfo *helpers.JobInfo) error {
+	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
 
 	// Prepare the backend client
-	backend := prepareBackend(ctx, jobInfo, jobInfo.Destinations[0], nil)
+	target := jobInfo.Destinations[0]
+	backend, berr := prepareBackend(ctx, jobInfo, target, nil)
+	if berr != nil {
+		helpers.AppLogger.Errorf("Could not initialize backend for target %s due to error - %v.", target, berr)
+		return berr
+	}
+	defer backend.Close()
 
 	// Get the local cache dir
-	localCachePath := getCacheDir(jobInfo.Destinations[0])
+	localCachePath, cerr := getCacheDir(jobInfo.Destinations[0])
+	if cerr != nil {
+		helpers.AppLogger.Errorf("Could not get cache dir for target %s due to error - %v.", target, cerr)
+		return cerr
+	}
 
 	// Sync the local cache
-	safeManifests, localOnlyFiles := syncCache(ctx, jobInfo, localCachePath, backend)
+	safeManifests, localOnlyFiles, serr := syncCache(ctx, jobInfo, localCachePath, backend)
+	if serr != nil {
+		helpers.AppLogger.Errorf("Could not sync cache dir for target %s due to error - %v.", target, serr)
+		return serr
+	}
 
 	// Read in Manifests and display
 	decodedManifests := make([]*helpers.JobInfo, 0, len(safeManifests))
@@ -55,7 +69,7 @@ func List(jobInfo *helpers.JobInfo) {
 		decodedManifest, oerr := readManifest(ctx, manifestPath, jobInfo)
 		if oerr != nil {
 			helpers.AppLogger.Errorf("Could not read manifest %s due to error - %v", manifestPath, oerr)
-			panic(helpers.Exit{Code: 207})
+			return oerr
 		}
 		decodedManifests = append(decodedManifests, decodedManifest)
 	}
@@ -91,6 +105,8 @@ func List(jobInfo *helpers.JobInfo) {
 	}
 
 	helpers.AppLogger.Noticef(strings.Join(output, "\n"))
+
+	return nil
 }
 
 func readManifest(ctx context.Context, manifestPath string, j *helpers.JobInfo) (*helpers.JobInfo, error) {

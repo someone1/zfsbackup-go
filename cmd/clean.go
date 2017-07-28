@@ -21,23 +21,25 @@
 package cmd
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 
 	"github.com/someone1/zfsbackup-go/backup"
-	"github.com/someone1/zfsbackup-go/helpers"
 )
 
 var cleanLocal bool
 
 // cleanCmd represents the clean command
 var cleanCmd = &cobra.Command{
-	Use:    "clean [flags] uri",
-	Short:  "Clean will delete any objects in the target that are not found in the manifest files found in the target.",
-	Long:   `Clean will delete any objects in the target that are not found in the manifest files found in the target.`,
-	PreRun: validateCleanFlags,
-	Run: func(cmd *cobra.Command, args []string) {
+	Use:           "clean [flags] uri",
+	Short:         "Clean will delete any objects in the target that are not found in the manifest files found in the target.",
+	Long:          `Clean will delete any objects in the target that are not found in the manifest files found in the target.`,
+	SilenceErrors: true,
+	PreRunE:       validateCleanFlags,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		jobInfo.Destinations = []string{args[0]}
-		backup.Clean(&jobInfo, cleanLocal)
+		return backup.Clean(context.Background(), &jobInfo, cleanLocal)
 	},
 }
 
@@ -48,9 +50,10 @@ func init() {
 	cleanCmd.Flags().BoolVarP(&jobInfo.Force, "force", "", false, "This will force the deletion of broken backup sets (sets where volumes expected in the manifest file are not found). Use with caution.")
 }
 
-func validateCleanFlags(cmd *cobra.Command, args []string) {
+func validateCleanFlags(cmd *cobra.Command, args []string) error {
 	if len(args) != 1 {
 		cmd.Usage()
-		panic(helpers.Exit{Code: 10})
+		return errInvalidInput
 	}
+	return nil
 }

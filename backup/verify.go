@@ -28,19 +28,32 @@ import (
 )
 
 // Verify will ensure the provided backupset exists in the target destination.
-func Verify(jobInfo *helpers.JobInfo) {
-	defer helpers.HandleExit()
-	ctx, cancel := context.WithCancel(context.Background())
+func Verify(pctx context.Context, jobInfo *helpers.JobInfo) error {
+	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
 
 	// Prepare the backend client
-	backend := prepareBackend(ctx, jobInfo, jobInfo.Destinations[0], nil)
+	target := jobInfo.Destinations[0]
+	backend, berr := prepareBackend(ctx, jobInfo, target, nil)
+	if berr != nil {
+		helpers.AppLogger.Errorf("Could not initialize backend for target %s due to error - %v.", target, berr)
+		return berr
+	}
+	defer backend.Close()
 
 	// Get the local cache dir
-	localCachePath := getCacheDir(jobInfo.Destinations[0])
+	localCachePath, cerr := getCacheDir(jobInfo.Destinations[0])
+	if cerr != nil {
+		helpers.AppLogger.Errorf("Could not get cache dir for target %s due to error - %v.", target, cerr)
+		return cerr
+	}
 
 	// Sync the local cache
-	safeManifests, _ := syncCache(ctx, jobInfo, localCachePath, backend)
+	safeManifests, _, serr := syncCache(ctx, jobInfo, localCachePath, backend)
+	if serr != nil {
+		helpers.AppLogger.Errorf("Could not sync cache dir for target %s due to error - %v.", target, serr)
+		return serr
+	}
 
 	// Read in Manifests
 	decodedManifests := make([]*helpers.JobInfo, 0, len(safeManifests))
@@ -49,10 +62,11 @@ func Verify(jobInfo *helpers.JobInfo) {
 		decodedManifest, oerr := readManifest(ctx, manifestPath, jobInfo)
 		if oerr != nil {
 			helpers.AppLogger.Errorf("Could not read manifest %s due to error - %v", manifestPath, oerr)
-			panic(helpers.Exit{Code: 207})
+			return oerr
 		}
 		decodedManifests = append(decodedManifests, decodedManifest)
 	}
 
 	// TODO: Finish this....
+	return nil
 }

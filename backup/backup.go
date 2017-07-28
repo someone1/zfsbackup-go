@@ -124,15 +124,28 @@ func ProcessSmartOptions(jobInfo *helpers.JobInfo) error {
 	return nil
 }
 
+// Will list all backups found in the target destination
 func getBackupsForTarget(ctx context.Context, volume, target string, jobInfo *helpers.JobInfo) ([]*helpers.JobInfo, error) {
 	// Prepare the backend client
-	backend := prepareBackend(ctx, jobInfo, target, nil)
+	backend, berr := prepareBackend(ctx, jobInfo, target, nil)
+	if berr != nil {
+		helpers.AppLogger.Errorf("Could not initialize backend due to error - %v.", berr)
+		return nil, berr
+	}
 
 	// Get the local cache dir
-	localCachePath := getCacheDir(target)
+	localCachePath, cerr := getCacheDir(target)
+	if cerr != nil {
+		helpers.AppLogger.Errorf("Could not get cache dir for target %s due to error - %v.", target, cerr)
+		return nil, cerr
+	}
 
 	// Sync the local cache
-	safeManifests, _ := syncCache(ctx, jobInfo, localCachePath, backend)
+	safeManifests, _, serr := syncCache(ctx, jobInfo, localCachePath, backend)
+	if serr != nil {
+		helpers.AppLogger.Errorf("Could not sync cache dir for target %s due to error - %v.", target, serr)
+		return nil, serr
+	}
 
 	// Read in Manifests and display
 	decodedManifests := make([]*helpers.JobInfo, 0, len(safeManifests))
@@ -154,8 +167,8 @@ func getBackupsForTarget(ctx context.Context, volume, target string, jobInfo *he
 }
 
 // Backup will iniate a backup with the provided configuration.
-func Backup(jobInfo *helpers.JobInfo) error {
-	ctx, cancel := context.WithCancel(context.Background())
+func Backup(pctx context.Context, jobInfo *helpers.JobInfo) error {
+	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
 	defer os.RemoveAll(helpers.BackupTempdir)
 
@@ -166,7 +179,7 @@ func Backup(jobInfo *helpers.JobInfo) error {
 	}
 
 	// Make sure nobody else is working on the same volume/dataset we are!
-	lockFilePath := filepath.Join(os.TempDir(), fmt.Sprintf("zfsbackup.%x.lck", []byte(jobInfo.VolumeName)))
+	lockFilePath := filepath.Join(os.TempDir(), fmt.Sprintf("zfsbackup.%x.lck", md5.Sum([]byte(jobInfo.VolumeName))))
 	lock, lferr := lockfile.New(lockFilePath)
 	if lferr != nil {
 		helpers.AppLogger.Errorf("Cannot init lock. reason: %v", lferr)
@@ -204,13 +217,27 @@ func Backup(jobInfo *helpers.JobInfo) error {
 
 	// Used to prevent closing the upload pipeline after the ZFS command is done
 	// so we can send the manifest file up after all volumes have made it to the backends.
-	go func(next chan<- *helpers.VolumeInfo) {
+	go func() {
 		defer maniwg.Done()
-		for vol := range startCh {
-			maniwg.Add(1)
-			next <- vol
+		for {
+			select {
+			case vol, ok := <-startCh:
+				if !ok {
+					return
+				}
+				maniwg.Add(1)
+				select {
+				// Might take a while to pass along the volume so be sure to listen to context cancellations
+				case stepCh <- vol:
+					continue
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
-	}(stepCh)
+	}()
 
 	// Start the ZFS send stream
 	group.Go(func() error {
@@ -227,8 +254,16 @@ func Backup(jobInfo *helpers.JobInfo) error {
 
 	// Prepare backends and setup plumbing
 	for _, destination := range jobInfo.Destinations {
-		backend := prepareBackend(ctx, jobInfo, destination, uploadBuffer)
-		_ = getCacheDir(destination)
+		backend, berr := prepareBackend(ctx, jobInfo, destination, uploadBuffer)
+		if berr != nil {
+			helpers.AppLogger.Errorf("Could not initialize backend due to error - %v.", berr)
+			return berr
+		}
+		_, cerr := getCacheDir(destination)
+		if cerr != nil {
+			helpers.AppLogger.Errorf("Could not create cache for destination %s due to error - %v.", destination, cerr)
+			return cerr
+		}
 		out, waitgroup := retryUploadChainer(ctx, channels[len(channels)-1], backend, jobInfo, destination)
 		channels = append(channels, out)
 		usedBackends = append(usedBackends, backend)
@@ -238,35 +273,46 @@ func Backup(jobInfo *helpers.JobInfo) error {
 	// Create and copy a copy of the manifest during the backup procedure for future retry requests
 	group.Go(func() error {
 		defer close(fileBuffer)
-		for vol := range channels[len(channels)-1] {
-			if !vol.IsManifest {
-				maniwg.Done()
-				helpers.AppLogger.Debugf("Volume %s has finished the entire pipeline.", vol.ObjectName)
-				helpers.AppLogger.Debugf("Adding %s to the manifest volume list.", vol.ObjectName)
-				jobInfo.Volumes = append(jobInfo.Volumes, vol)
-				// Write a manifest file and save it locally in order to resume later
-				manifestVol, err := saveManifest(ctx, jobInfo, false)
-				if err != nil {
-					return err
-				}
-				if err = manifestVol.DeleteVolume(); err != nil {
-					helpers.AppLogger.Warningf("Error deleting temporary manifest file  - %v", err)
-				}
-			} else {
-				// Manifest has been processed, we're done!
-				break
-			}
+		lastChan := channels[len(channels)-1]
+		for {
 			select {
+			case vol, ok := <-lastChan:
+				if !ok {
+					return nil
+				}
+				if !vol.IsManifest {
+					maniwg.Done()
+					helpers.AppLogger.Debugf("Volume %s has finished the entire pipeline.", vol.ObjectName)
+					helpers.AppLogger.Debugf("Adding %s to the manifest volume list.", vol.ObjectName)
+					jobInfo.Volumes = append(jobInfo.Volumes, vol)
+					// Write a manifest file and save it locally in order to resume later
+					manifestVol, err := saveManifest(ctx, jobInfo, false)
+					if err != nil {
+						return err
+					}
+					if err = manifestVol.DeleteVolume(); err != nil {
+						helpers.AppLogger.Warningf("Error deleting temporary manifest file  - %v", err)
+					}
+				} else {
+					// Manifest has been processed, we're done!
+					return nil
+				}
+				select {
+				// May take a while to add to buffer channel so listen for context cancellations.
+				case <-ctx.Done():
+					return ctx.Err()
+
+				case fileBuffer <- true:
+				}
 			case <-ctx.Done():
 				return ctx.Err()
-			case fileBuffer <- true:
 			}
 		}
-		return nil
 	})
 
 	// Final Manifest Creation
 	group.Go(func() error {
+		// TODO: How to incorporate contexts in this go routine?
 		maniwg.Wait() // Wait until the ZFS send command has completed and all volumes have been uploaded to all backends.
 		helpers.AppLogger.Infof("All volumes dispatched in pipeline, finalizing manifest file.")
 

@@ -27,27 +27,43 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
+	"time"
+
+	"github.com/cenkalti/backoff"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/someone1/zfsbackup-go/helpers"
 )
 
-// Clean will remove fiels found in the desination that are not found in any of the manifests found locally or in the destination.
+// Clean will remove files found in the desination that are not found in any of the manifests found locally or in the destination.
 // If cleanLocal is true, then local manifests not found in the destination are ignored and deleted. This function will optionally
 // delete broken backup sets in the destination if the --force flag is provided.
-func Clean(jobInfo *helpers.JobInfo, cleanLocal bool) {
-	defer helpers.HandleExit()
-	ctx, cancel := context.WithCancel(context.Background())
+func Clean(pctx context.Context, jobInfo *helpers.JobInfo, cleanLocal bool) error {
+	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
 
 	// Prepare the backend client
-	backend := prepareBackend(ctx, jobInfo, jobInfo.Destinations[0], nil)
+	target := jobInfo.Destinations[0]
+	backend, berr := prepareBackend(ctx, jobInfo, target, nil)
+	if berr != nil {
+		helpers.AppLogger.Errorf("Could not initialize backend for target %s due to error - %v.", target, berr)
+		return berr
+	}
+	defer backend.Close()
 
 	// Get the local cache dir
-	localCachePath := getCacheDir(jobInfo.Destinations[0])
+	localCachePath, cerr := getCacheDir(target)
+	if cerr != nil {
+		helpers.AppLogger.Errorf("Could not get cache dir for target %s due to error - %v.", target, cerr)
+		return cerr
+	}
 
 	// Sync the local cache
-	safeManifests, localOnlyFiles := syncCache(ctx, jobInfo, localCachePath, backend)
+	safeManifests, localOnlyFiles, serr := syncCache(ctx, jobInfo, localCachePath, backend)
+	if serr != nil {
+		helpers.AppLogger.Errorf("Could not sync cache dir for target %s due to error - %v.", target, serr)
+		return serr
+	}
 
 	// Read in Manifests
 	decodedManifests := make([]*helpers.JobInfo, 0, len(safeManifests))
@@ -56,7 +72,7 @@ func Clean(jobInfo *helpers.JobInfo, cleanLocal bool) {
 		decodedManifest, oerr := readManifest(ctx, manifestPath, jobInfo)
 		if oerr != nil {
 			helpers.AppLogger.Errorf("Could not read manifest %s due to error - %v", manifestPath, oerr)
-			panic(helpers.Exit{Code: 301})
+			return oerr
 		}
 		decodedManifests = append(decodedManifests, decodedManifest)
 	}
@@ -69,7 +85,7 @@ func Clean(jobInfo *helpers.JobInfo, cleanLocal bool) {
 				decodedManifest, oerr := readManifest(ctx, manifestPath, jobInfo)
 				if oerr != nil {
 					helpers.AppLogger.Errorf("Could not read manifest %s due to error - %v", manifestPath, oerr)
-					panic(helpers.Exit{Code: 302})
+					return oerr
 				}
 				decodedManifests = append(decodedManifests, decodedManifest)
 			}
@@ -80,19 +96,17 @@ func Clean(jobInfo *helpers.JobInfo, cleanLocal bool) {
 			err := os.Remove(manifestPath)
 			if err != nil {
 				helpers.AppLogger.Errorf("Could not delete local manifest %s due to error - %v", manifestPath, err)
-				panic(helpers.Exit{Code: 303})
+				return err
 			}
 			helpers.AppLogger.Debugf("Deleted %s.", manifestPath)
 		}
-
 	}
 
 	// TODO: The following can be done in a much more efficient way (probably)
-
 	allObjects, err := backend.List(ctx, "")
 	if err != nil {
-		helpers.AppLogger.Errorf("Could not list objects in backend %s due to error - %v", jobInfo.Destinations[0], err)
-		panic(helpers.Exit{Code: 304})
+		helpers.AppLogger.Errorf("Could not list objects in backend %s due to error - %v", target, err)
+		return err
 	}
 
 	// Remove Manifest Files
@@ -127,7 +141,7 @@ func Clean(jobInfo *helpers.JobInfo, cleanLocal bool) {
 					tempManifest, err := helpers.CreateManifestVolume(ctx, manifest)
 					if err != nil {
 						helpers.AppLogger.Errorf("Could not compute manifest path due to error - %v.", err)
-						panic(helpers.Exit{Code: 306})
+						return err
 					}
 					allObjects = append(allObjects, tempManifest.ObjectName)
 					tempManifest.Close()
@@ -153,29 +167,54 @@ func Clean(jobInfo *helpers.JobInfo, cleanLocal bool) {
 	helpers.AppLogger.Noticef("Starting to delete %d objects in destination.", len(allObjects))
 
 	// Whatever is left in allObjects was not found in any manifest, delete 'em
-	var wg sync.WaitGroup
-	wg.Add(len(allObjects))
+	var group *errgroup.Group
+	group, ctx = errgroup.WithContext(ctx)
 
-	// Let's not try and do too many deletes at once!
-	buffer := make(chan interface{}, 20)
-	defer close(buffer)
-
+	deleteChan := make(chan string, len(allObjects))
 	for _, obj := range allObjects {
-		go func(objectPath string) {
-			buffer <- nil
-			defer wg.Done()
-			err := backend.Delete(ctx, objectPath)
-			if err != nil {
-				helpers.AppLogger.Errorf("Could not delete object %s in due to error - %v", objectPath, err)
-				panic(helpers.Exit{Code: 305})
+		deleteChan <- obj
+	}
+	close(deleteChan)
+
+	// Let's not slam the endpoint with a lot of concurrent requests, pick a sensible default and stick to it
+	for i := 0; i < 5; i++ {
+		group.Go(func() error {
+			for {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case objectPath, ok := <-deleteChan:
+					if !ok {
+						return nil
+					}
+
+					be := backoff.NewExponentialBackOff()
+					be.MaxInterval = time.Minute
+					be.MaxElapsedTime = 10 * time.Minute
+					retryconf := backoff.WithContext(be, ctx)
+
+					operation := func() error {
+						return backend.Delete(ctx, objectPath)
+					}
+
+					if err := backoff.Retry(operation, retryconf); err != nil {
+						helpers.AppLogger.Errorf("Could not delete object %s in due to error - %v", objectPath, err)
+						return err
+					}
+
+					helpers.AppLogger.Debugf("Deleted %s.", filepath.Join(target, objectPath))
+				}
 			}
-			helpers.AppLogger.Debugf("Deleted %s.", filepath.Join(jobInfo.Destinations[0], objectPath))
-			<-buffer
-		}(obj)
+		})
 	}
 
 	helpers.AppLogger.Debugf("Waiting to delete %d objects in destination.", len(allObjects))
-	wg.Wait()
+	err = group.Wait()
+	if err != nil {
+		helpers.AppLogger.Errorf("Could not finish clean operation due to error, aborting: %v", err)
+		return err
+	}
 
 	helpers.AppLogger.Noticef("Done.")
+	return nil
 }

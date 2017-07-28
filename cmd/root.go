@@ -21,6 +21,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -44,6 +45,7 @@ var (
 	secretKeyRingPath string
 	publicKeyRingPath string
 	workingDirectory  string
+	errInvalidInput   = errors.New("invalid input")
 )
 
 // RootCmd represents the base command when called without any subcommands
@@ -57,7 +59,8 @@ volumes for long-term storage.
 zfsbackup uses the "zfs send" command to export, and optionally compress, sign,
 encrypt, and split the send stream to files that are then transferred to a
 destination of your choosing.`,
-	PersistentPreRun: processFlags,
+	PersistentPreRunE: processFlags,
+	SilenceErrors:     true,
 }
 
 // Execute adds all child commands to the root command sets flags appropriately.
@@ -83,7 +86,7 @@ func init() {
 	passphrase = []byte(os.Getenv("PGP_PASSPHRASE"))
 }
 
-func processFlags(cmd *cobra.Command, args []string) {
+func processFlags(cmd *cobra.Command, args []string) error {
 	switch strings.ToLower(logLevel) {
 	case "critical":
 		logging.SetLevel(logging.CRITICAL, helpers.LogModuleName)
@@ -99,12 +102,12 @@ func processFlags(cmd *cobra.Command, args []string) {
 		logging.SetLevel(logging.DEBUG, helpers.LogModuleName)
 	default:
 		helpers.AppLogger.Errorf("Invalid log level provided. Was given %s", logLevel)
-		panic(helpers.Exit{Code: 10})
+		return errInvalidInput
 	}
 
 	if numCores <= 0 {
 		helpers.AppLogger.Errorf("The number of cores to use provided is an invalid value. It must be greater than 0. %d was given.", numCores)
-		panic(helpers.Exit{Code: 10})
+		return errInvalidInput
 	}
 
 	if numCores > runtime.NumCPU() {
@@ -117,7 +120,7 @@ func processFlags(cmd *cobra.Command, args []string) {
 	if secretKeyRingPath != "" {
 		if err := helpers.LoadPrivateRing(secretKeyRingPath); err != nil {
 			helpers.AppLogger.Errorf("Could not load private keyring due to an error - %v", err)
-			panic(helpers.Exit{Code: 10})
+			return errInvalidInput
 		}
 	}
 	helpers.AppLogger.Infof("Loaded private key ring %s", secretKeyRingPath)
@@ -125,32 +128,32 @@ func processFlags(cmd *cobra.Command, args []string) {
 	if publicKeyRingPath != "" {
 		if err := helpers.LoadPublicRing(publicKeyRingPath); err != nil {
 			helpers.AppLogger.Errorf("Could not load public keyring due to an error - %v", err)
-			panic(helpers.Exit{Code: 10})
+			return errInvalidInput
 		}
 	}
 	helpers.AppLogger.Infof("Loaded public key ring %s", publicKeyRingPath)
 
 	if jobInfo.EncryptTo != "" && secretKeyRingPath == "" {
 		helpers.AppLogger.Errorf("You must specify a private keyring path if you provide an encryptFrom option")
-		panic(helpers.Exit{Code: 10})
+		return errInvalidInput
 	}
 
 	if jobInfo.SignFrom != "" && publicKeyRingPath == "" {
 		helpers.AppLogger.Errorf("You must specify a public keyring path if you provide an signTo option")
-		panic(helpers.Exit{Code: 10})
+		return errInvalidInput
 	}
 
 	if jobInfo.EncryptTo != "" {
 		if jobInfo.EncryptKey = helpers.GetPrivateKeyByEmail(jobInfo.EncryptTo); jobInfo.EncryptKey == nil {
 			helpers.AppLogger.Errorf("Could not find public key for %s", jobInfo.EncryptTo)
-			panic(helpers.Exit{Code: 10})
+			return errInvalidInput
 		}
 
 		if jobInfo.EncryptKey.PrivateKey != nil && jobInfo.EncryptKey.PrivateKey.Encrypted {
 			validatePassphrase()
 			if err := jobInfo.EncryptKey.PrivateKey.Decrypt(passphrase); err != nil {
 				helpers.AppLogger.Errorf("Error decrypting private key: %v", err)
-				panic(helpers.Exit{Code: 10})
+				return errInvalidInput
 			}
 		}
 
@@ -159,7 +162,7 @@ func processFlags(cmd *cobra.Command, args []string) {
 				validatePassphrase()
 				if err := subkey.PrivateKey.Decrypt(passphrase); err != nil {
 					helpers.AppLogger.Errorf("Error decrypting subkey's private key: %v", err)
-					panic(helpers.Exit{Code: 10})
+					return errInvalidInput
 				}
 			}
 		}
@@ -168,14 +171,14 @@ func processFlags(cmd *cobra.Command, args []string) {
 	if jobInfo.SignFrom != "" {
 		if jobInfo.SignKey = helpers.GetPrivateKeyByEmail(jobInfo.SignFrom); jobInfo.SignKey == nil {
 			helpers.AppLogger.Errorf("Could not find private key for %s", jobInfo.SignFrom)
-			panic(helpers.Exit{Code: 10})
+			return errInvalidInput
 		}
 
 		if jobInfo.SignKey.PrivateKey != nil && jobInfo.SignKey.PrivateKey.Encrypted {
 			validatePassphrase()
 			if err := jobInfo.SignKey.PrivateKey.Decrypt(passphrase); err != nil {
 				helpers.AppLogger.Errorf("Error decrypting private key: %v", err)
-				panic(helpers.Exit{Code: 10})
+				return errInvalidInput
 			}
 		}
 
@@ -184,56 +187,59 @@ func processFlags(cmd *cobra.Command, args []string) {
 				validatePassphrase()
 				if err := subkey.PrivateKey.Decrypt(passphrase); err != nil {
 					helpers.AppLogger.Errorf("Error decrypting subkey's private key: %v", err)
-					panic(helpers.Exit{Code: 10})
+					return errInvalidInput
 				}
 			}
 		}
 	}
 
-	setupGlobalVars()
+	if err := setupGlobalVars(); err != nil {
+		return err
+	}
 	helpers.AppLogger.Infof("Setting working directory to %s", workingDirectory)
 	helpers.PrintPGPDebugInformation()
+	return nil
 }
 
-func setupGlobalVars() {
+func setupGlobalVars() error {
 	// Setup Tempdir
 
 	if strings.HasPrefix(workingDirectory, "~") {
 		usr, err := user.Current()
 		if err != nil {
 			helpers.AppLogger.Errorf("Could not get current user due to error - %v", err)
-			panic(helpers.Exit{Code: 21})
+			return err
 		}
 		workingDirectory = filepath.Join(usr.HomeDir, strings.TrimPrefix(workingDirectory, "~"))
 	}
 
 	if dir, serr := os.Stat(workingDirectory); serr == nil && !dir.IsDir() {
 		helpers.AppLogger.Errorf("Cannot create working directory because another non-directory object already exists in that path (%s)", workingDirectory)
-		panic(helpers.Exit{Code: 19})
+		return errInvalidInput
 	} else if serr != nil {
 		err := os.Mkdir(workingDirectory, 0755)
 		if err != nil {
 			helpers.AppLogger.Errorf("Could not create working directory %s due to error - %v", workingDirectory, err)
-			panic(helpers.Exit{Code: 20})
+			return err
 		}
 	}
 
 	dirPath := filepath.Join(workingDirectory, "temp")
 	if dir, serr := os.Stat(dirPath); serr == nil && !dir.IsDir() {
 		helpers.AppLogger.Errorf("Cannot create temp dir in working directory because another non-directory object already exists in that path (%s)", dirPath)
-		panic(helpers.Exit{Code: 18})
+		return errInvalidInput
 	} else if serr != nil {
 		err := os.Mkdir(dirPath, 0755)
 		if err != nil {
 			helpers.AppLogger.Errorf("Could not create temp directory %s due to error - %v", dirPath, err)
-			panic(helpers.Exit{Code: 3})
+			return err
 		}
 	}
 
 	tempdir, err := ioutil.TempDir(dirPath, helpers.LogModuleName)
 	if err != nil {
 		helpers.AppLogger.Errorf("Could not create temp directory due to error - %v", err)
-		panic(helpers.Exit{Code: 4})
+		return err
 	}
 
 	helpers.BackupTempdir = tempdir
@@ -242,12 +248,12 @@ func setupGlobalVars() {
 	dirPath = filepath.Join(workingDirectory, "cache")
 	if dir, serr := os.Stat(dirPath); serr == nil && !dir.IsDir() {
 		helpers.AppLogger.Errorf("Cannot create cache dir in working directory because another non-directory object already exists in that path (%s)", dirPath)
-		panic(helpers.Exit{Code: 18})
+		return errInvalidInput
 	} else if serr != nil {
 		err := os.Mkdir(dirPath, 0755)
 		if err != nil {
 			helpers.AppLogger.Errorf("Could not create cache directory %s due to error - %v", dirPath, err)
-			panic(helpers.Exit{Code: 3})
+			return err
 		}
 	}
 
@@ -255,7 +261,7 @@ func setupGlobalVars() {
 		helpers.AppLogger.Infof("Limiting the upload speed to %s/s.", humanize.Bytes(maxUploadSpeed*humanize.KByte))
 		helpers.BackupUploadBucket = ratelimit.NewBucketWithRate(float64(maxUploadSpeed*humanize.KByte), int64(maxUploadSpeed*humanize.KByte))
 	}
-
+	return nil
 }
 
 func validatePassphrase() {
@@ -265,7 +271,7 @@ func validatePassphrase() {
 		passphrase, err = terminal.ReadPassword(0)
 		if err != nil {
 			helpers.AppLogger.Errorf("Error reading user input for encryption key passphrase: %v", err)
-			panic(helpers.Exit{Code: 10})
+			panic(err)
 		}
 	}
 }

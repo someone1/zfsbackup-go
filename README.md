@@ -172,6 +172,7 @@ Global Flags:
 * Refactor
 * Test Coverage
 * Add more backends (e.g. Azure, BackBlaze, etc.)
-* Fix error handling (at least omit panic dumps!)
 * Add delete feature
 * Appease linters
+* Validate requested snapshots exist
+* Track intermediary snaps as part of backup jobs

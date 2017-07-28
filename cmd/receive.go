@@ -21,6 +21,7 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -33,14 +34,12 @@ import (
 
 // receiveCmd represents the receive command
 var receiveCmd = &cobra.Command{
-	Use:    "receive [flags] filesystem|volume|snapshot uri local_volume",
-	Short:  "receive will restore a snapshot of a ZFS volume similar to how the \"zfs recv\" command works.",
-	Long:   `receive will restore a snapshot of a ZFS volume similar to how the "zfs recv" command works.`,
-	PreRun: validateReceiveFlags,
-	Run: func(cmd *cobra.Command, args []string) {
-
-		updateReceiveJobInfo(args)
-		backup.Receive(&jobInfo)
+	Use:     "receive [flags] filesystem|volume|snapshot uri local_volume",
+	Short:   "receive will restore a snapshot of a ZFS volume similar to how the \"zfs recv\" command works.",
+	Long:    `receive will restore a snapshot of a ZFS volume similar to how the "zfs recv" command works.`,
+	PreRunE: validateReceiveFlags,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return backup.Receive(context.Background(), &jobInfo)
 	},
 }
 
@@ -55,22 +54,21 @@ func init() {
 	receiveCmd.Flags().StringVarP(&jobInfo.Origin, "origin", "o", "", "See the -o flag on zfs recv for more information.")
 	receiveCmd.Flags().StringVarP(&jobInfo.IncrementalSnapshot.Name, "incremental", "i", "", "Used to specify the snapshot target to restore from.")
 	receiveCmd.Flags().IntVar(&jobInfo.MaxFileBuffer, "maxFileBuffer", 5, "the maximum number of files to have active during the upload process. Should be set to at least the number of max parallel uploads. Set to 0 to bypass local storage and upload straight to your destination - this will limit you to a single destination and disable any hash checks for the upload where available.")
+	receiveCmd.Flags().DurationVar(&jobInfo.MaxRetryTime, "maxRetryTime", 12*time.Hour, "the maximum time that can elapse when retrying a failed download. Use 0 for no limit.")
+	receiveCmd.Flags().DurationVar(&jobInfo.MaxBackoffTime, "maxBackoffTime", 30*time.Minute, "the maximum delay you'd want a worker to sleep before retrying an download.")
 }
 
-func validateReceiveFlags(cmd *cobra.Command, args []string) {
+func validateReceiveFlags(cmd *cobra.Command, args []string) error {
 	if len(args) != 3 {
 		cmd.Usage()
-		panic(helpers.Exit{Code: 10})
+		return errInvalidInput
 	}
-}
-
-func updateReceiveJobInfo(args []string) {
 	jobInfo.StartTime = time.Now()
 
 	parts := strings.Split(args[0], "@")
 	if len(parts) != 2 {
 		helpers.AppLogger.Errorf("Invalid base snapshot provided. Expected format <volume>@<snapshot>, got %s instead", args[0])
-		panic(helpers.Exit{Code: 10})
+		return errInvalidInput
 	}
 	jobInfo.VolumeName = parts[0]
 	jobInfo.BaseSnapshot = helpers.SnapshotInfo{Name: parts[1]}
@@ -86,10 +84,12 @@ func updateReceiveJobInfo(args []string) {
 		_, err := backends.GetBackendForURI(destination)
 		if err == backends.ErrInvalidPrefix {
 			helpers.AppLogger.Errorf("Unsupported prefix provided in destination URI, was given %s", destination)
-			panic(helpers.Exit{Code: 10})
+			return errInvalidInput
 		} else if err == backends.ErrInvalidURI {
 			helpers.AppLogger.Errorf("Invalid destination URI, was given %s", destination)
-			panic(helpers.Exit{Code: 10})
+			return errInvalidInput
 		}
 	}
+
+	return nil
 }
