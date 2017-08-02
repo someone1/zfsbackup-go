@@ -45,7 +45,7 @@ import (
 )
 
 // ProcessSmartOptions will compute the snapshots to use
-func ProcessSmartOptions(jobInfo *helpers.JobInfo) error {
+func ProcessSmartOptions(ctx context.Context, jobInfo *helpers.JobInfo) error {
 	snapshots, err := helpers.GetSnapshots(context.Background(), jobInfo.VolumeName)
 	if err != nil {
 		return err
@@ -58,7 +58,7 @@ func ProcessSmartOptions(jobInfo *helpers.JobInfo) error {
 	lastComparableSnapshots := make([]*helpers.SnapshotInfo, len(jobInfo.Destinations))
 	lastBackup := make([]*helpers.SnapshotInfo, len(jobInfo.Destinations))
 	for idx := range jobInfo.Destinations {
-		destBackups, derr := getBackupsForTarget(context.Background(), jobInfo.VolumeName, jobInfo.Destinations[idx], jobInfo)
+		destBackups, derr := getBackupsForTarget(ctx, jobInfo.VolumeName, jobInfo.Destinations[idx], jobInfo)
 		if derr != nil {
 			return derr
 		}
@@ -108,16 +108,25 @@ func ProcessSmartOptions(jobInfo *helpers.JobInfo) error {
 			helpers.AppLogger.Infof("No previous full backup found, performing full backup.")
 			return nil
 		}
+
 		if snapshots[0].CreationTime.Sub(lastComparableSnapshots[0].CreationTime) > jobInfo.FullIfOlderThan {
 			// Been more than the allotted time, do a full backup
 			helpers.AppLogger.Infof("Last Full backup was %v and is more than %v before the most recent snapshot, performing full backup.", lastComparableSnapshots[0].CreationTime, jobInfo.FullIfOlderThan)
 			return nil
 		}
+
 		if lastNotEqual {
 			return fmt.Errorf("want to do an incremental backup but last incremental backup at destinations do not match")
 		}
 		if lastBackup[0].Equal(&snapshots[0]) {
 			return fmt.Errorf("no new snapshot to sync")
+		}
+
+		if ok, verr := validateSnapShotExists(ctx, lastComparableSnapshots[0], jobInfo.VolumeName); verr != nil {
+			return err
+		} else if !ok {
+			helpers.AppLogger.Infof("Last Full backup was done on %v but is no longer found in the local target, performing full backup.", lastComparableSnapshots[0].CreationTime, jobInfo.FullIfOlderThan)
+			return nil
 		}
 		jobInfo.IncrementalSnapshot = *lastBackup[0]
 	}
@@ -166,11 +175,10 @@ func getBackupsForTarget(ctx context.Context, volume, target string, jobInfo *he
 	return decodedManifests, nil
 }
 
-// Backup will iniate a backup with the provided configuration.
+// Backup will initiate a backup with the provided configuration.
 func Backup(pctx context.Context, jobInfo *helpers.JobInfo) error {
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
-	defer os.RemoveAll(helpers.BackupTempdir)
 
 	if jobInfo.Resume {
 		if err := tryResume(ctx, jobInfo); err != nil {
@@ -196,6 +204,25 @@ func Backup(pctx context.Context, jobInfo *helpers.JobInfo) error {
 	fileBufferSize := jobInfo.MaxFileBuffer
 	if fileBufferSize == 0 {
 		fileBufferSize = 1
+	}
+
+	// Validate the snapshots we want to use exist
+	if ok, verr := validateSnapShotExists(ctx, &jobInfo.BaseSnapshot, jobInfo.VolumeName); verr != nil {
+		helpers.AppLogger.Errorf("Cannot validate if selected base snapshot exists due to error - %v", verr)
+		return verr
+	} else if !ok {
+		helpers.AppLogger.Errorf("Selected base snapshot does not exist!")
+		return fmt.Errorf("selected base snapshot does not exist")
+	}
+
+	if jobInfo.IncrementalSnapshot.Name != "" {
+		if ok, verr := validateSnapShotExists(ctx, &jobInfo.IncrementalSnapshot, jobInfo.VolumeName); verr != nil {
+			helpers.AppLogger.Errorf("Cannot validate if selected incremental snapshot exists due to error - %v", verr)
+			return verr
+		} else if !ok {
+			helpers.AppLogger.Errorf("Selected incremental snapshot does not exist!")
+			return fmt.Errorf("selected incremental snapshot does not exist")
+		}
 	}
 
 	startCh := make(chan *helpers.VolumeInfo, fileBufferSize) // Sent to ZFS command and meant to be closed when done

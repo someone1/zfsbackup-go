@@ -28,10 +28,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	cache "github.com/patrickmn/go-cache"
 )
 
 // ZFSPath is the path to the zfs binary
-var ZFSPath = "zfs"
+var (
+	ZFSPath       = "zfs"
+	snapshotCache = cache.New(5*time.Minute, 10*time.Minute)
+)
 
 // GetCreationDate will use the zfs command to get and parse the creation datetime
 // of the specified volume/snapshot
@@ -49,6 +54,12 @@ func GetCreationDate(ctx context.Context, target string) (time.Time, error) {
 
 // GetSnapshots will retrieve all snapshots for the given target
 func GetSnapshots(ctx context.Context, target string) ([]SnapshotInfo, error) {
+	cacheResult, found := snapshotCache.Get(target)
+	if found {
+		if v, ok := cacheResult.([]SnapshotInfo); ok {
+			return v, nil
+		}
+	}
 	errB := new(bytes.Buffer)
 	cmd := exec.CommandContext(ctx, ZFSPath, "list", "-H", "-d", "1", "-p", "-t", "snapshot", "-r", "-o", "name,creation", "-S", "creation", target)
 	AppLogger.Debugf("Getting ZFS Snapshots with command \"%s\"", strings.Join(cmd.Args, " "))
@@ -75,7 +86,12 @@ func GetSnapshots(ctx context.Context, target string) ([]SnapshotInfo, error) {
 		snapshots = append(snapshots, snapInfo)
 	}
 	err = cmd.Wait()
-	return snapshots, err
+	if err != nil {
+		return nil, err
+	}
+
+	snapshotCache.Set(target, snapshots, cache.DefaultExpiration)
+	return snapshots, nil
 }
 
 // GetZFSProperty will return the raw value returned by the "zfs get" command for

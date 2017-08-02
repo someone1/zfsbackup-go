@@ -163,7 +163,7 @@ func updateJobInfo(args []string) error {
 			helpers.AppLogger.Errorf("When using a smart option, please only specify the volume to backup, do not include any snapshot information.")
 			return errInvalidInput
 		}
-		if err := backup.ProcessSmartOptions(&jobInfo); err != nil {
+		if err := backup.ProcessSmartOptions(context.Background(), &jobInfo); err != nil {
 			helpers.AppLogger.Errorf("Error while trying to process smart option - %v", err)
 			return errInvalidInput
 		}

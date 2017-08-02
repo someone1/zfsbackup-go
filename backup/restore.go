@@ -46,7 +46,6 @@ type downloadSequence struct {
 func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
-	defer os.RemoveAll(helpers.BackupTempdir)
 
 	target := jobInfo.Destinations[0]
 

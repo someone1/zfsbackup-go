@@ -123,3 +123,18 @@ func syncCache(ctx context.Context, j *helpers.JobInfo, localCache string, backe
 
 	return safeManifests, localOnlyFiles, nil
 }
+
+func validateSnapShotExists(ctx context.Context, snapshot *helpers.SnapshotInfo, target string) (bool, error) {
+	snapshots, err := helpers.GetSnapshots(ctx, target)
+	if err != nil {
+		return false, err
+	}
+
+	for _, snap := range snapshots {
+		if snap.Equal(snapshot) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}

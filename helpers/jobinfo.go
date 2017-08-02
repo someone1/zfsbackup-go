@@ -78,6 +78,7 @@ type JobInfo struct {
 	MaxFileBuffer      int             `json:"-"`
 	EncryptKey         *openpgp.Entity `json:"-"`
 	SignKey            *openpgp.Entity `json:"-"`
+	ParentSnap         *JobInfo        `json:"-"`
 }
 
 // SnapshotInfo represents a snapshot with relevant information.
@@ -86,6 +87,7 @@ type SnapshotInfo struct {
 	Name         string
 }
 
+// Equal will test two SnapshotInfo objects for equality. This is based on the snapshot name and the time of creation
 func (s *SnapshotInfo) Equal(t *SnapshotInfo) bool {
 	if s == nil || t == nil {
 		return s == t

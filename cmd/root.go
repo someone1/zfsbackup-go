@@ -60,6 +60,7 @@ zfsbackup uses the "zfs send" command to export, and optionally compress, sign,
 encrypt, and split the send stream to files that are then transferred to a
 destination of your choosing.`,
 	PersistentPreRunE: processFlags,
+	PersistentPostRun: postRunCleanup,
 	SilenceErrors:     true,
 }
 
@@ -199,6 +200,13 @@ func processFlags(cmd *cobra.Command, args []string) error {
 	helpers.AppLogger.Infof("Setting working directory to %s", workingDirectory)
 	helpers.PrintPGPDebugInformation()
 	return nil
+}
+
+func postRunCleanup(cmd *cobra.Command, args []string) {
+	err := os.RemoveAll(helpers.BackupTempdir)
+	if err != nil {
+		helpers.AppLogger.Errorf("Could not clean working temporary directory - %v", err)
+	}
 }
 
 func setupGlobalVars() error {
