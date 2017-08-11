@@ -22,6 +22,7 @@ package backup
 
 import (
 	"context"
+	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -62,26 +63,10 @@ func List(pctx context.Context, jobInfo *helpers.JobInfo) error {
 		return serr
 	}
 
-	// Read in Manifests and display
-	decodedManifests := make([]*helpers.JobInfo, 0, len(safeManifests))
-	for _, manifest := range safeManifests {
-		manifestPath := filepath.Join(localCachePath, manifest)
-		decodedManifest, oerr := readManifest(ctx, manifestPath, jobInfo)
-		if oerr != nil {
-			helpers.AppLogger.Errorf("Could not read manifest %s due to error - %v", manifestPath, oerr)
-			return oerr
-		}
-		decodedManifests = append(decodedManifests, decodedManifest)
+	decodedManifests, derr := readAndSortManifests(ctx, localCachePath, safeManifests, jobInfo)
+	if derr != nil {
+		return derr
 	}
-
-	sort.SliceStable(decodedManifests, func(i, j int) bool {
-		cmp := strings.Compare(decodedManifests[i].VolumeName, decodedManifests[j].VolumeName)
-		if cmp == 0 {
-			return decodedManifests[i].BaseSnapshot.CreationTime.Before(decodedManifests[j].BaseSnapshot.CreationTime)
-		}
-		return cmp < 0
-
-	})
 
 	var output []string
 	output = append(output, fmt.Sprintf("Found %d backup sets:\n", len(decodedManifests)))
@@ -107,6 +92,76 @@ func List(pctx context.Context, jobInfo *helpers.JobInfo) error {
 	helpers.AppLogger.Noticef(strings.Join(output, "\n"))
 
 	return nil
+}
+
+func readAndSortManifests(ctx context.Context, localCachePath string, manifests []string, jobInfo *helpers.JobInfo) ([]*helpers.JobInfo, error) {
+	// Read in Manifests and display
+	decodedManifests := make([]*helpers.JobInfo, 0, len(manifests))
+	for _, manifest := range manifests {
+		manifestPath := filepath.Join(localCachePath, manifest)
+		decodedManifest, oerr := readManifest(ctx, manifestPath, jobInfo)
+		if oerr != nil {
+			helpers.AppLogger.Errorf("Could not read manifest %s due to error - %v", manifestPath, oerr)
+			return nil, oerr
+		}
+		decodedManifests = append(decodedManifests, decodedManifest)
+	}
+
+	sort.SliceStable(decodedManifests, func(i, j int) bool {
+		cmp := strings.Compare(decodedManifests[i].VolumeName, decodedManifests[j].VolumeName)
+		if cmp == 0 {
+			return decodedManifests[i].BaseSnapshot.CreationTime.Before(decodedManifests[j].BaseSnapshot.CreationTime)
+		}
+		return cmp < 0
+
+	})
+
+	return decodedManifests, nil
+}
+
+// linkManifests will group manifests by Volume and link parents to their children
+func linkManifests(manifests []*helpers.JobInfo) map[string][]*helpers.JobInfo {
+	if manifests == nil {
+		return nil
+	}
+	manifestTree := make(map[string][]*helpers.JobInfo)
+	manifestsByID := make(map[string]*helpers.JobInfo)
+	for idx := range manifests {
+		if _, ok := manifestTree[manifests[idx].VolumeName]; !ok {
+			manifestTree[manifests[idx].VolumeName] = make([]*helpers.JobInfo, 0, 10)
+		}
+
+		manifestID := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s%s%v", manifests[idx].VolumeName, manifests[idx].BaseSnapshot.Name, manifests[idx].BaseSnapshot.CreationTime))))
+
+		manifestTree[manifests[idx].VolumeName] = append(manifestTree[manifests[idx].VolumeName], manifests[idx])
+
+		// Case 1: Full Backups, nothing to link
+		if manifests[idx].IncrementalSnapshot.Name == "" {
+			// We will always assume full backups are ideal when selecting a parent
+			manifestsByID[manifestID] = manifests[idx]
+		} else if _, ok := manifestsByID[manifestID]; !ok {
+			// Case 2: Incremental Backup - only make it the designated parent if we haven't gone one already
+			manifestsByID[manifestID] = manifests[idx]
+		}
+	}
+
+	// Link up parents
+	for _, snapList := range manifestTree {
+		for _, val := range snapList {
+			if val.IncrementalSnapshot.Name == "" {
+				// Full backup, no parent
+				continue
+			}
+			manifestID := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s%s%v", val.VolumeName, val.IncrementalSnapshot.Name, val.IncrementalSnapshot.CreationTime))))
+			if psnap, ok := manifestsByID[manifestID]; ok {
+				val.ParentSnap = psnap
+			} else {
+				helpers.AppLogger.Warningf("Could not find matching parent for %v", val)
+			}
+		}
+
+	}
+	return manifestTree
 }
 
 func readManifest(ctx context.Context, manifestPath string, j *helpers.JobInfo) (*helpers.JobInfo, error) {

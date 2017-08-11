@@ -23,6 +23,7 @@ package backup
 import (
 	"context"
 	"crypto/md5"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -43,6 +44,128 @@ type downloadSequence struct {
 	c      chan<- *helpers.VolumeInfo
 }
 
+// AutoRestore will compute which snapshots need to be restored to get to the snapshot provided,
+// or to the latest snapshot of the volume provided
+func AutoRestore(pctx context.Context, jobInfo *helpers.JobInfo) error {
+	ctx, cancel := context.WithCancel(pctx)
+	defer cancel()
+
+	// Prepare the backend client
+	target := jobInfo.Destinations[0]
+	backend, berr := prepareBackend(ctx, jobInfo, target, nil)
+	if berr != nil {
+		helpers.AppLogger.Errorf("Could not initialize backend for target %s due to error - %v.", target, berr)
+		return berr
+	}
+	defer backend.Close()
+
+	// Get the local cache dir
+	localCachePath, cerr := getCacheDir(jobInfo.Destinations[0])
+	if cerr != nil {
+		helpers.AppLogger.Errorf("Could not get cache dir for target %s due to error - %v.", target, cerr)
+		return cerr
+	}
+
+	// Sync the local cache
+	safeManifests, _, serr := syncCache(ctx, jobInfo, localCachePath, backend)
+	if serr != nil {
+		helpers.AppLogger.Errorf("Could not sync cache dir for target %s due to error - %v.", target, serr)
+		return serr
+	}
+
+	decodedManifests, derr := readAndSortManifests(ctx, localCachePath, safeManifests, jobInfo)
+	if derr != nil {
+		return derr
+	}
+	manifestTree := linkManifests(decodedManifests)
+	var ok bool
+	var volumeSnaps []*helpers.JobInfo
+	if volumeSnaps, ok = manifestTree[jobInfo.VolumeName]; !ok {
+		helpers.AppLogger.Errorf("Could not find any snapshots for volume %s, none found on target.", jobInfo.VolumeName)
+		return errors.New("could not determine any snapshots for provided volume")
+	}
+
+	// Restore to the latest snapshot available for the volume provided if no snapshot was provided
+	if jobInfo.BaseSnapshot.Name == "" {
+		helpers.AppLogger.Infof("Trying to determine latest snapshot for volume %s.", jobInfo.BaseSnapshot.Name)
+		job := volumeSnaps[len(volumeSnaps)-1]
+		jobInfo.BaseSnapshot = job.BaseSnapshot
+		helpers.AppLogger.Infof("Restoring to snapshot %s.", job.BaseSnapshot.Name)
+	}
+
+	// Find the matching backup job for the snapshot we want to restore to
+	var jobToRestore *helpers.JobInfo
+	for _, job := range volumeSnaps {
+		if strings.Compare(job.BaseSnapshot.Name, jobInfo.BaseSnapshot.Name) == 0 {
+			jobToRestore = job
+			break
+		}
+	}
+	if jobToRestore == nil {
+		helpers.AppLogger.Errorf("Could not find the snapshot %v for volume %s on backend.", jobInfo.BaseSnapshot.Name, jobInfo.VolumeName)
+		return errors.New("could not find snapshot provided")
+	}
+
+	// We have the snapshot we'd like to restore to, let's figure out whats already found locally and restore as required
+	jobsToRestore := make([]*helpers.JobInfo, 0, 10)
+	helpers.AppLogger.Infof("Calculating how to restore to %s.", jobInfo.BaseSnapshot.Name)
+	volume := jobInfo.LocalVolume
+	parts := strings.Split(jobInfo.VolumeName, "/")
+	if jobInfo.FullPath {
+		parts[0] = volume
+		volume = strings.Join(parts, "/")
+	}
+
+	if jobInfo.LastPath {
+		volume = fmt.Sprintf("%s/%s", volume, parts[len(parts)-1])
+	}
+
+	snapshots, err := helpers.GetSnapshots(ctx, volume)
+	if err != nil {
+		// TODO: There are some error cases that are ok to ignore!
+		snapshots = []helpers.SnapshotInfo{}
+	}
+
+	for {
+		// See if the snapshots we want to restore already exist
+		if ok := validateSnapShotExistsFromSnaps(&jobToRestore.BaseSnapshot, snapshots); ok {
+			break
+		}
+		helpers.AppLogger.Infof("Adding backup job for %s to the restore list.", jobToRestore.BaseSnapshot.Name)
+		jobsToRestore = append(jobsToRestore, jobToRestore)
+		if jobToRestore.IncrementalSnapshot.Name == "" {
+			// This is a full backup, no need to go further back
+			break
+		}
+		if jobToRestore.ParentSnap == nil {
+			helpers.AppLogger.Errorf("Want to restore parent snap %s but it is not found in the backend, aborting.", jobToRestore.IncrementalSnapshot.Name)
+			return errors.New("could not find parent snapshot")
+		}
+		jobToRestore = jobToRestore.ParentSnap
+	}
+
+	helpers.AppLogger.Infof("Need to restore %d snapshots.", len(jobsToRestore))
+
+	// We have a list of snapshots we need to restore, start at the end and work our way down
+	for i := len(jobsToRestore) - 1; i >= 0; i-- {
+		jobInfo.BaseSnapshot = jobsToRestore[i].BaseSnapshot
+		jobInfo.IncrementalSnapshot = jobsToRestore[i].IncrementalSnapshot
+		jobInfo.Volumes = jobsToRestore[i].Volumes
+		jobInfo.Compressor = jobsToRestore[i].Compressor
+		jobInfo.Separator = jobsToRestore[i].Separator
+		helpers.AppLogger.Infof("Restoring snapshot %s (%d/%d)", jobInfo.BaseSnapshot.Name, len(jobsToRestore)-i, len(jobsToRestore))
+		if err := Receive(ctx, jobInfo); err != nil {
+			helpers.AppLogger.Errorf("Failed to restore snapshot.")
+			return err
+		}
+	}
+
+	helpers.AppLogger.Noticef("Done.")
+
+	return nil
+}
+
+// Receive will download and restore the backup job described to the Volume target provided.
 func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
@@ -62,6 +185,37 @@ func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
 	if cerr != nil {
 		helpers.AppLogger.Errorf("Could not get cache dir for target %s due to error - %v.", target, cerr)
 		return cerr
+	}
+
+	// See if the snapshots we want to restore already exist
+	volume := jobInfo.LocalVolume
+	parts := strings.Split(jobInfo.VolumeName, "/")
+	if jobInfo.FullPath {
+		parts[0] = volume
+		volume = strings.Join(parts, "/")
+	}
+
+	if jobInfo.LastPath {
+		volume = fmt.Sprintf("%s/%s", volume, parts[len(parts)-1])
+	}
+
+	if ok, verr := validateSnapShotExists(ctx, &jobInfo.BaseSnapshot, volume); verr != nil {
+		helpers.AppLogger.Errorf("Cannot validate if selected base snapshot exists due to error - %v", verr)
+		return verr
+	} else if ok {
+		helpers.AppLogger.Infof("Selected base snapshot already exists, nothing to do!")
+		return nil
+	}
+
+	// Check that we have the parent snap shot this wants to restore from
+	if jobInfo.IncrementalSnapshot.Name != "" {
+		if ok, verr := validateSnapShotExists(ctx, &jobInfo.IncrementalSnapshot, volume); verr != nil {
+			helpers.AppLogger.Errorf("Cannot validate if selected incremental snapshot exists due to error - %v", verr)
+			return verr
+		} else if !ok {
+			helpers.AppLogger.Errorf("Selected incremental snapshot does not exist!")
+			return fmt.Errorf("selected incremental snapshot does not exist")
+		}
 	}
 
 	// Compute the Manifest File
@@ -100,8 +254,8 @@ func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
 
 	// Get list of Objects
 	toDownload := make([]string, len(manifest.Volumes))
-	for idx, vol := range manifest.Volumes {
-		toDownload[idx] = vol.ObjectName
+	for idx := range manifest.Volumes {
+		toDownload[idx] = manifest.Volumes[idx].ObjectName
 	}
 
 	// PreDownload step
@@ -126,10 +280,10 @@ func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
 	defer close(bufferChannel)
 
 	// Queue up files to download
-	for idx, vol := range manifest.Volumes {
+	for idx := range manifest.Volumes {
 		c := make(chan *helpers.VolumeInfo, 1)
 		orderedChannels[idx] = c
-		downloadChannel <- downloadSequence{vol, c}
+		downloadChannel <- downloadSequence{manifest.Volumes[idx], c}
 	}
 	close(downloadChannel)
 
@@ -162,6 +316,8 @@ func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
 					operation := func() error {
 						return processSequence(ctx, sequence, backend, usePipe)
 					}
+
+					helpers.AppLogger.Debugf("Downloading volume %s.", sequence.volume.ObjectName)
 
 					if err := backoff.Retry(operation, retryconf); err != nil {
 						helpers.AppLogger.Errorf("Failed to download volume %s due to error: %v, aborting...", sequence.volume.ObjectName, err)

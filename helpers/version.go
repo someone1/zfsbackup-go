@@ -24,7 +24,7 @@ import "fmt"
 
 const (
 	// VersionNumber represents the current version of zfsbackup
-	VersionNumber = .1
+	VersionNumber = .2
 	// ProgramName is the name for zfsbackup
 	ProgramName = "zfsbackup"
 )

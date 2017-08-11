@@ -22,6 +22,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -34,11 +35,14 @@ import (
 
 // receiveCmd represents the receive command
 var receiveCmd = &cobra.Command{
-	Use:     "receive [flags] filesystem|volume|snapshot uri local_volume",
+	Use:     "receive [flags] filesystem|volume|snapshot-to-restore uri local_volume",
 	Short:   "receive will restore a snapshot of a ZFS volume similar to how the \"zfs recv\" command works.",
 	Long:    `receive will restore a snapshot of a ZFS volume similar to how the "zfs recv" command works.`,
 	PreRunE: validateReceiveFlags,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if jobInfo.AutoRestore {
+			return backup.AutoRestore(context.Background(), &jobInfo)
+		}
 		return backup.Receive(context.Background(), &jobInfo)
 	},
 }
@@ -47,6 +51,7 @@ func init() {
 	RootCmd.AddCommand(receiveCmd)
 
 	// ZFS recv command options
+	receiveCmd.Flags().BoolVar(&jobInfo.AutoRestore, "auto", false, "Automatically restore to the snapshot provided, or to the latest snapshot of the volume provided, cannot be used with the --incremental flag.")
 	receiveCmd.Flags().BoolVarP(&jobInfo.FullPath, "fullPath", "d", false, "See the -d flag on zfs recv for more information")
 	receiveCmd.Flags().BoolVarP(&jobInfo.LastPath, "lastPath", "e", false, "See the -e flag for zfs recv for more information.")
 	receiveCmd.Flags().BoolVarP(&jobInfo.Force, "force", "F", false, "See the -F flag for zfs recv for more information.")
@@ -66,18 +71,42 @@ func validateReceiveFlags(cmd *cobra.Command, args []string) error {
 	jobInfo.StartTime = time.Now()
 
 	parts := strings.Split(args[0], "@")
-	if len(parts) != 2 {
+	if len(parts) != 2 && !jobInfo.AutoRestore {
 		helpers.AppLogger.Errorf("Invalid base snapshot provided. Expected format <volume>@<snapshot>, got %s instead", args[0])
 		return errInvalidInput
+	} else if len(parts) == 2 {
+		jobInfo.BaseSnapshot = helpers.SnapshotInfo{Name: parts[1]}
 	}
+
+	if jobInfo.FullPath && jobInfo.LastPath {
+		helpers.AppLogger.Errorf("The -d and -e options are mutually exclusive, please select only one!")
+		return errInvalidInput
+	}
+
 	jobInfo.VolumeName = parts[0]
-	jobInfo.BaseSnapshot = helpers.SnapshotInfo{Name: parts[1]}
 	jobInfo.Destinations = strings.Split(args[1], ",")
 	jobInfo.LocalVolume = args[2]
 
-	if jobInfo.IncrementalSnapshot.Name != "" {
-		jobInfo.IncrementalSnapshot.Name = strings.TrimPrefix(jobInfo.IncrementalSnapshot.Name, jobInfo.VolumeName)
-		jobInfo.IncrementalSnapshot.Name = strings.TrimPrefix(jobInfo.IncrementalSnapshot.Name, "@")
+	// Intelligently restore to the snapshot wanted
+	if jobInfo.AutoRestore && jobInfo.IncrementalSnapshot.Name != "" {
+		helpers.AppLogger.Errorf("Cannot request auto restore option and provide an incremental snapshot to restore from.")
+		return errInvalidInput
+	}
+
+	if !jobInfo.AutoRestore {
+		// Let's see if we already have this snap shot
+		creationTime, err := helpers.GetCreationDate(context.TODO(), fmt.Sprintf("%s@%s", jobInfo.LocalVolume, jobInfo.BaseSnapshot.Name))
+		if err == nil {
+			jobInfo.BaseSnapshot.CreationTime = creationTime
+		}
+		if jobInfo.IncrementalSnapshot.Name != "" {
+			jobInfo.IncrementalSnapshot.Name = strings.TrimPrefix(jobInfo.IncrementalSnapshot.Name, jobInfo.VolumeName)
+			jobInfo.IncrementalSnapshot.Name = strings.TrimPrefix(jobInfo.IncrementalSnapshot.Name, "@")
+			creationTime, err = helpers.GetCreationDate(context.TODO(), fmt.Sprintf("%s@%s", jobInfo.LocalVolume, jobInfo.IncrementalSnapshot.Name))
+			if err == nil {
+				jobInfo.IncrementalSnapshot.CreationTime = creationTime
+			}
+		}
 	}
 
 	for _, destination := range jobInfo.Destinations {

@@ -28,14 +28,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	cache "github.com/patrickmn/go-cache"
 )
 
 // ZFSPath is the path to the zfs binary
 var (
-	ZFSPath       = "zfs"
-	snapshotCache = cache.New(5*time.Minute, 10*time.Minute)
+	ZFSPath = "zfs"
 )
 
 // GetCreationDate will use the zfs command to get and parse the creation datetime
@@ -54,12 +51,6 @@ func GetCreationDate(ctx context.Context, target string) (time.Time, error) {
 
 // GetSnapshots will retrieve all snapshots for the given target
 func GetSnapshots(ctx context.Context, target string) ([]SnapshotInfo, error) {
-	cacheResult, found := snapshotCache.Get(target)
-	if found {
-		if v, ok := cacheResult.([]SnapshotInfo); ok {
-			return v, nil
-		}
-	}
 	errB := new(bytes.Buffer)
 	cmd := exec.CommandContext(ctx, ZFSPath, "list", "-H", "-d", "1", "-p", "-t", "snapshot", "-r", "-o", "name,creation", "-S", "creation", target)
 	AppLogger.Debugf("Getting ZFS Snapshots with command \"%s\"", strings.Join(cmd.Args, " "))
@@ -90,7 +81,6 @@ func GetSnapshots(ctx context.Context, target string) ([]SnapshotInfo, error) {
 		return nil, err
 	}
 
-	snapshotCache.Set(target, snapshots, cache.DefaultExpiration)
 	return snapshots, nil
 }
 
@@ -131,12 +121,12 @@ func GetZFSSendCommand(ctx context.Context, j *JobInfo) *exec.Cmd {
 		zfsArgs = append(zfsArgs, "-p")
 	}
 
-	if j.IntermediaryIncremental {
+	if j.IntermediaryIncremental && j.IncrementalSnapshot.Name != "" {
 		AppLogger.Infof("Enabling an incremental stream with all intermediary snapshots (-I) on the send to snapshot %s", j.IncrementalSnapshot.Name)
 		zfsArgs = append(zfsArgs, "-I", j.IncrementalSnapshot.Name)
 	}
 
-	if j.IncrementalSnapshot.Name != "" {
+	if !j.IntermediaryIncremental && j.IncrementalSnapshot.Name != "" {
 		AppLogger.Infof("Enabling an incremental stream (-i) on the send to snapshot %s", j.IncrementalSnapshot.Name)
 		zfsArgs = append(zfsArgs, "-i", j.IncrementalSnapshot.Name)
 	}

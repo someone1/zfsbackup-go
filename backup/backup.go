@@ -308,7 +308,6 @@ func Backup(pctx context.Context, jobInfo *helpers.JobInfo) error {
 					return nil
 				}
 				if !vol.IsManifest {
-					maniwg.Done()
 					helpers.AppLogger.Debugf("Volume %s has finished the entire pipeline.", vol.ObjectName)
 					helpers.AppLogger.Debugf("Adding %s to the manifest volume list.", vol.ObjectName)
 					jobInfo.Volumes = append(jobInfo.Volumes, vol)
@@ -320,6 +319,7 @@ func Backup(pctx context.Context, jobInfo *helpers.JobInfo) error {
 					if err = manifestVol.DeleteVolume(); err != nil {
 						helpers.AppLogger.Warningf("Error deleting temporary manifest file  - %v", err)
 					}
+					maniwg.Done()
 				} else {
 					// Manifest has been processed, we're done!
 					return nil

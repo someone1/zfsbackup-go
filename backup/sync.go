@@ -127,14 +127,18 @@ func syncCache(ctx context.Context, j *helpers.JobInfo, localCache string, backe
 func validateSnapShotExists(ctx context.Context, snapshot *helpers.SnapshotInfo, target string) (bool, error) {
 	snapshots, err := helpers.GetSnapshots(ctx, target)
 	if err != nil {
-		return false, err
+		// TODO: There are some error cases that are ok to ignore!
+		return false, nil
 	}
+	return validateSnapShotExistsFromSnaps(snapshot, snapshots), nil
+}
 
+func validateSnapShotExistsFromSnaps(snapshot *helpers.SnapshotInfo, snapshots []helpers.SnapshotInfo) bool {
 	for _, snap := range snapshots {
 		if snap.Equal(snapshot) {
-			return true, nil
+			return true
 		}
 	}
 
-	return false, nil
+	return false
 }

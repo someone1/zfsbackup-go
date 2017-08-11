@@ -46,7 +46,7 @@ The compiled binary should be in your $GOPATH/bin directory.
 
 ## Usage
 
-### "Smart" Options:
+### "Smart" Backup Options:
 
 Use the `--full` option to auto select the most recent snapshot on the target volume to do a full backup of:
 
@@ -59,6 +59,16 @@ Use the `--increment` option to auto select the most recent snapshot on the targ
 Use the `--fullIfOlderThan` option to auto select the most recent snapshot on the target volume to do an incremental snapshot of the most recent snapshot found in the target destination, unless the last full backup is older than the provided duration, in which case do a full backup:
 
 	$ ./zfsbackup send --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --fullIfOlderThan 720h Tank/Dataset gs://backup-bucket-target,s3://another-backup-target
+
+### "Smart" Restore Options:
+Add the `--auto`` option to automatically restore to the snapshot if one is given, or detect the latest snapshot for the filesystem/volume given and restore to that. It will figure out which snapshots are missing from the local_volume and select them all to restore to get to the desired snapshot. Note: snapshot comparisons work using the name of the snapshot, if you restored a snapshot to a different name, this application won't think it is available and it will break the restore process.
+
+Auto-detect latest snapshot:
+	$ ./zfsbackup receive --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --auto -d Tank/Dataset gs://backup-bucket-target Tank
+
+Auto restore to snapshot provided:
+	$ ./zfsbackup receive --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --auto -d Tank/Dataset@snapshot-20170201 gs://backup-bucket-target Tank
+
 
 ### Manual Options:
 
@@ -168,11 +178,10 @@ Global Flags:
 ## TODOs:
 * Make PGP cipher configurable.
 * Finish the verify command
-* Build out more robust restore options (e.g. cascading, parent verification, etc.)
 * Refactor
 * Test Coverage
 * Add more backends (e.g. Azure, BackBlaze, etc.)
 * Add delete feature
 * Appease linters
-* Validate requested snapshots exist
 * Track intermediary snaps as part of backup jobs
+* Parity archives?

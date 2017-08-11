@@ -68,6 +68,7 @@ type JobInfo struct {
 	NotMounted  bool   `json:"-"`
 	Origin      string `json:"-"`
 	LocalVolume string `json:"-"`
+	AutoRestore bool   `json:"-"`
 
 	Destinations       []string        `json:"-"`
 	VolumeSize         uint64          `json:"-"`
