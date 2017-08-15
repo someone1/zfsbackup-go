@@ -203,7 +203,7 @@ func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
 		helpers.AppLogger.Errorf("Cannot validate if selected base snapshot exists due to error - %v", verr)
 		return verr
 	} else if ok {
-		helpers.AppLogger.Infof("Selected base snapshot already exists, nothing to do!")
+		helpers.AppLogger.Noticef("Selected base snapshot already exists, nothing to do!")
 		return nil
 	}
 
