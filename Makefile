@@ -5,13 +5,13 @@ check: get fmt vet lint test test-race
 
 fmt:
 	@for d in $(DIRS) ; do \
-		if [ "`gofmt -l $$d/*.go | tee /dev/stderr`" ]; then \
+		if [ "`gofmt -s -l $$d/*.go | tee /dev/stderr`" ]; then \
 			echo "^ improperly formatted go files" && echo && exit 1; \
 		fi \
 	done
 
 lint:
-	@if [ "`gometalinter --config=linter.json ./... | tee /dev/stderr`" ]; then \
+	@if [ "`gometalinter --cyclo-over=15 --deadline=5m ./... | tee /dev/stderr`" ]; then \
 		echo "^ gometalinter errors!" && echo && exit 1; \
 	fi
 
