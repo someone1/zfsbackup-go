@@ -11,8 +11,8 @@ before_install:
 
 install:
   - $HOME/gopath/bin/gometalinter --install
-  - make
+  - make get
 
 script:
   - $HOME/gopath/bin/goveralls -service=travis-ci
-  - make build
+  - make fmt vet test test-race build
