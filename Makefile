@@ -31,8 +31,8 @@ vet:
 
 build:
 	go get github.com/mitchellh/gox
-	${GOPATH}bin/gox -ldflags="-w -s" -osarch=${TARGETS}
+	${GOPATH}/bin/gox -ldflags="-w -s" -osarch=${TARGETS}
 
 build-dev:
 	go get github.com/mitchellh/gox
-	${GOPATH}bin/gox -osarch=${TARGETS} -output="{{.Dir}}_{{.OS}}_{{.Arch}}-${COMMIT_HASH}"
+	${GOPATH}/bin/gox -osarch=${TARGETS} -output="{{.Dir}}_{{.OS}}_{{.Arch}}-${COMMIT_HASH}"
