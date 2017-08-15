@@ -55,7 +55,7 @@ var (
 )
 
 const (
-	// BufferSize is the size of various buffers and copy limits around the applicaiton
+	// BufferSize is the size of various buffers and copy limits around the application
 	BufferSize = 256 * humanize.KiByte // 256KiB
 )
 

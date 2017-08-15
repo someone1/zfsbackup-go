@@ -80,13 +80,13 @@ func (m *mockS3Client) ListObjectsV2WithContext(ctx aws.Context, in *s3.ListObje
 		IsTruncated:           aws.Bool(true),
 		NextContinuationToken: aws.String("call2"),
 		Contents: []*s3.Object{
-			&s3.Object{
+			{
 				Key: aws.String("random"),
 			},
-			&s3.Object{
+			{
 				Key: aws.String("random"),
 			},
-			&s3.Object{
+			{
 				Key: aws.String("random"),
 			},
 		},
@@ -95,7 +95,7 @@ func (m *mockS3Client) ListObjectsV2WithContext(ctx aws.Context, in *s3.ListObje
 	responses["call2"] = &s3.ListObjectsV2Output{
 		IsTruncated: aws.Bool(false),
 		Contents: []*s3.Object{
-			&s3.Object{
+			{
 				Key: aws.String("random"),
 			},
 		},

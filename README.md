@@ -1,4 +1,4 @@
-# ZFSBackup
+# ZFSBackup  [![Go Report Card](https://goreportcard.com/badge/github.com/someone1/zfsbackup-go)](https://goreportcard.com/report/github.com/someone1/zfsbackup-go)
 
 DISCLAIMER: This is a work in progress in still considered beta though I personally use this in a production environment and have tested it for my own use cases (looking for feedback on other people's experience before considering this "production ready").
 

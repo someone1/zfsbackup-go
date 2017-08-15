@@ -123,7 +123,7 @@ func prepareTestVols() (payload []byte, goodVol *helpers.VolumeInfo, badVol *hel
 func TestGetBackendForURI(t *testing.T) {
 	_, err := GetBackendForURI("thiswon'texist://")
 	if err != ErrInvalidPrefix {
-		t.Errorf("Expecting err %v, got %v for non-existant prefix", ErrInvalidPrefix, err)
+		t.Errorf("Expecting err %v, got %v for non-existent prefix", ErrInvalidPrefix, err)
 	}
 
 	_, err = GetBackendForURI("thisisinvalid")

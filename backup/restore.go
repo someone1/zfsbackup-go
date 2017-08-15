@@ -472,7 +472,7 @@ func receiveStream(ctx context.Context, cmd *exec.Cmd, j *helpers.JobInfo, c <-c
 		helpers.AppLogger.Errorf("Error waiting for zfs command to finish - %v", err)
 		return err
 	}
-	helpers.AppLogger.Infof("zfs recieve completed without error")
+	helpers.AppLogger.Infof("zfs receive completed without error")
 
 	return nil
 }

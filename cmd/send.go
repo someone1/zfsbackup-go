@@ -76,7 +76,7 @@ func init() {
 	// Specific to download only
 	sendCmd.Flags().Uint64Var(&jobInfo.VolumeSize, "volsize", 200, "the maximum size (in MiB) a volume should be before splitting to a new volume. Note: zfsbackup will try its best to stay close/under this limit but it is not garaunteed.")
 	sendCmd.Flags().IntVar(&jobInfo.CompressionLevel, "compressionLevel", 6, "the compression level to use with the compressor. Valid values are between 1-9.")
-	sendCmd.Flags().BoolVar(&jobInfo.Resume, "resume", false, "set this flag to true when you want to try and resume a previously cancled or failed backup. It is up to the caller to ensure the same command line arguements are provided between the original backup and the resumed one.")
+	sendCmd.Flags().BoolVar(&jobInfo.Resume, "resume", false, "set this flag to true when you want to try and resume a previously cancled or failed backup. It is up to the caller to ensure the same command line arguments are provided between the original backup and the resumed one.")
 	sendCmd.Flags().BoolVar(&jobInfo.Full, "full", false, "set this flag to take a full backup of the specified volume using the most recent snapshot.")
 	sendCmd.Flags().BoolVar(&jobInfo.Incremental, "increment", false, "set this flag to do an incremental backup of the most recent snapshot from the most recent snapshot found in the target.")
 	sendCmd.Flags().DurationVar(&jobInfo.FullIfOlderThan, "fullIfOlderThan", -1*time.Minute, "set this flag to do an incremental backup of the most recent snapshot from the most recent snapshot found in the target unless the it's been greater than the time specified in this flag, then do a full backup.")

@@ -24,10 +24,9 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/spf13/cobra"
 
 	"github.com/someone1/zfsbackup-go/helpers"
-
-	"github.com/spf13/cobra"
 )
 
 // versionCmd represents the version command
