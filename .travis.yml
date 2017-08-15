@@ -9,6 +9,10 @@ before_install:
   - go get github.com/alecthomas/gometalinter
   - go get github.com/mitchellh/gox
 
+install:
+  - $HOME/gopath/bin/gometalinter --install
+  - make
+
 script:
   - $HOME/gopath/bin/goveralls -service=travis-ci
   - make build
