@@ -30,6 +30,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff"
@@ -199,16 +200,18 @@ func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
 		volume = fmt.Sprintf("%s/%s", volume, parts[len(parts)-1])
 	}
 
-	if ok, verr := validateSnapShotExists(ctx, &jobInfo.BaseSnapshot, volume); verr != nil {
-		helpers.AppLogger.Errorf("Cannot validate if selected base snapshot exists due to error - %v", verr)
-		return verr
-	} else if ok {
-		helpers.AppLogger.Noticef("Selected base snapshot already exists, nothing to do!")
-		return nil
+	if jobInfo.BaseSnapshot.CreationTime.IsZero() {
+		if ok, verr := validateSnapShotExists(ctx, &jobInfo.BaseSnapshot, volume); verr != nil {
+			helpers.AppLogger.Errorf("Cannot validate if selected base snapshot exists due to error - %v", verr)
+			return verr
+		} else if ok {
+			helpers.AppLogger.Noticef("Selected base snapshot already exists, nothing to do!")
+			return nil
+		}
 	}
 
 	// Check that we have the parent snap shot this wants to restore from
-	if jobInfo.IncrementalSnapshot.Name != "" {
+	if jobInfo.IncrementalSnapshot.Name != "" && jobInfo.IncrementalSnapshot.CreationTime.IsZero() {
 		if ok, verr := validateSnapShotExists(ctx, &jobInfo.IncrementalSnapshot, volume); verr != nil {
 			helpers.AppLogger.Errorf("Cannot validate if selected incremental snapshot exists due to error - %v", verr)
 			return verr
@@ -319,9 +322,9 @@ func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
 
 					helpers.AppLogger.Debugf("Downloading volume %s.", sequence.volume.ObjectName)
 
-					if err := backoff.Retry(operation, retryconf); err != nil {
-						helpers.AppLogger.Errorf("Failed to download volume %s due to error: %v, aborting...", sequence.volume.ObjectName, err)
-						return err
+					if berr := backoff.Retry(operation, retryconf); berr != nil {
+						helpers.AppLogger.Errorf("Failed to download volume %s due to error: %v, aborting...", sequence.volume.ObjectName, berr)
+						return berr
 					}
 				}
 			}
@@ -412,6 +415,7 @@ func receiveStream(ctx context.Context, cmd *exec.Cmd, j *helpers.JobInfo, c <-c
 	cmd.Stdin = cin
 	cmd.Stderr = os.Stderr
 	var group *errgroup.Group
+	var once sync.Once
 	group, ctx = errgroup.WithContext(ctx)
 
 	// Start the zfs receive command
@@ -439,30 +443,38 @@ func receiveStream(ctx context.Context, cmd *exec.Cmd, j *helpers.JobInfo, c <-c
 
 	// Extract ZFS stream from files and send it to the zfs command
 	group.Go(func() error {
-		defer cout.Close()
+		defer once.Do(func() { cout.Close() })
 		buf := make([]byte, 1024*1024)
-		for vol := range c {
-			helpers.AppLogger.Debugf("Processing %s.", vol.ObjectName)
-			eerr := vol.Extract(ctx, j)
-			if eerr != nil {
-				helpers.AppLogger.Errorf("Error while trying to read from volume %s - %v", vol.ObjectName, eerr)
-				return err
+		for {
+			select {
+			case vol, ok := <-c:
+				if !ok {
+					return nil
+				}
+				helpers.AppLogger.Debugf("Processing %s.", vol.ObjectName)
+				eerr := vol.Extract(ctx, j)
+				if eerr != nil {
+					helpers.AppLogger.Errorf("Error while trying to read from volume %s - %v", vol.ObjectName, eerr)
+					return err
+				}
+				_, eerr = io.CopyBuffer(cout, vol, buf)
+				if eerr != nil {
+					helpers.AppLogger.Errorf("Error while trying to read from volume %s - %v", vol.ObjectName, eerr)
+					return eerr
+				}
+				vol.Close()
+				vol.DeleteVolume()
+				helpers.AppLogger.Debugf("Processed %s.", vol.ObjectName)
+				vol = nil
+				<-buffer
+			case <-ctx.Done():
+				return ctx.Err()
 			}
-			_, eerr = io.CopyBuffer(cout, vol, buf)
-			if eerr != nil {
-				helpers.AppLogger.Errorf("Error while trying to read from volume %s - %v", vol.ObjectName, eerr)
-				return eerr
-			}
-			vol.Close()
-			vol.DeleteVolume()
-			helpers.AppLogger.Debugf("Processed %s.", vol.ObjectName)
-			vol = nil
-			<-buffer
 		}
-		return nil
 	})
 
 	group.Go(func() error {
+		defer once.Do(func() { cout.Close() })
 		return cmd.Wait()
 	})
 

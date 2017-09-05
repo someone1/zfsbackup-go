@@ -138,10 +138,10 @@ func Clean(pctx context.Context, jobInfo *helpers.JobInfo, cleanLocal bool) erro
 					manifest.ManifestPrefix = jobInfo.ManifestPrefix
 					manifest.SignKey = jobInfo.SignKey
 					manifest.EncryptKey = jobInfo.EncryptKey
-					tempManifest, err := helpers.CreateManifestVolume(ctx, manifest)
-					if err != nil {
-						helpers.AppLogger.Errorf("Could not compute manifest path due to error - %v.", err)
-						return err
+					tempManifest, terr := helpers.CreateManifestVolume(ctx, manifest)
+					if terr != nil {
+						helpers.AppLogger.Errorf("Could not compute manifest path due to error - %v.", terr)
+						return terr
 					}
 					allObjects = append(allObjects, tempManifest.ObjectName)
 					tempManifest.Close()
@@ -197,9 +197,9 @@ func Clean(pctx context.Context, jobInfo *helpers.JobInfo, cleanLocal bool) erro
 						return backend.Delete(ctx, objectPath)
 					}
 
-					if err := backoff.Retry(operation, retryconf); err != nil {
-						helpers.AppLogger.Errorf("Could not delete object %s in due to error - %v", objectPath, err)
-						return err
+					if berr := backoff.Retry(operation, retryconf); berr != nil {
+						helpers.AppLogger.Errorf("Could not delete object %s in due to error - %v", objectPath, berr)
+						return berr
 					}
 
 					helpers.AppLogger.Debugf("Deleted %s.", filepath.Join(target, objectPath))
