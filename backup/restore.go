@@ -127,11 +127,28 @@ func AutoRestore(pctx context.Context, jobInfo *helpers.JobInfo) error {
 		snapshots = []helpers.SnapshotInfo{}
 	}
 
+	if jobInfo.Origin != "" {
+		originSnapshot, oerr := helpers.GetSnapshots(ctx, jobInfo.Origin)
+		if oerr != nil {
+			helpers.AppLogger.Errorf("Could not get origin snapshot %s info due to error: %v", jobInfo.Origin, oerr)
+			return oerr
+		}
+
+		if len(originSnapshot) == 1 {
+			// The origin snapshot can be added as an existing snapshot we can start the restore from
+			snapshots = append(snapshots, originSnapshot[0])
+		} else {
+			helpers.AppLogger.Errorf("Could not find origin snapshot %s", jobInfo.Origin)
+			return fmt.Errorf("Could not find origin snapshot %s", jobInfo.Origin)
+		}
+	}
+
 	for {
 		// See if the snapshots we want to restore already exist
 		if ok := validateSnapShotExistsFromSnaps(&jobToRestore.BaseSnapshot, snapshots); ok {
 			break
 		}
+
 		helpers.AppLogger.Infof("Adding backup job for %s to the restore list.", jobToRestore.BaseSnapshot.Name)
 		jobsToRestore = append(jobsToRestore, jobToRestore)
 		if jobToRestore.IncrementalSnapshot.Name == "" {

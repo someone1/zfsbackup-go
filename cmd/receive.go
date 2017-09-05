@@ -93,6 +93,9 @@ func validateReceiveFlags(cmd *cobra.Command, args []string) error {
 		return errInvalidInput
 	}
 
+	// Remove 'origin=' from beggining of -o argument
+	jobInfo.Origin = strings.TrimPrefix(jobInfo.Origin, "origin=")
+
 	if !jobInfo.AutoRestore {
 		// Let's see if we already have this snap shot
 		creationTime, err := helpers.GetCreationDate(context.TODO(), fmt.Sprintf("%s@%s", jobInfo.LocalVolume, jobInfo.BaseSnapshot.Name))

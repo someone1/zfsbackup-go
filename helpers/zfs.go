@@ -72,8 +72,7 @@ func GetSnapshots(ctx context.Context, target string) ([]SnapshotInfo, error) {
 			break
 		}
 		snapInfo.CreationTime = time.Unix(creation, 0)
-		snapInfo.Name = strings.TrimPrefix(snapInfo.Name, target)
-		snapInfo.Name = strings.TrimPrefix(snapInfo.Name, "@")
+		snapInfo.Name = snapInfo.Name[strings.Index(snapInfo.Name, "@")+1:]
 		snapshots = append(snapshots, snapInfo)
 	}
 	err = cmd.Wait()
