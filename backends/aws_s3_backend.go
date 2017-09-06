@@ -136,9 +136,10 @@ func (a *AWSS3Backend) Init(ctx context.Context, conf *BackendConfig, opts ...Op
 	if a.uploader == nil {
 		a.uploader = s3manager.NewUploaderWithClient(a.client, func(u *s3manager.Uploader) {
 			u.Concurrency = conf.MaxParallelUploads
+		}, func(u *s3manager.Uploader) {
+			u.PartSize = int64(conf.UploadChunkSize)
 		})
 	}
-	conf.MaxParallelUploads = 1
 
 	listReq := &s3.ListObjectsV2Input{
 		Bucket:  aws.String(a.bucketName),

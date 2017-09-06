@@ -80,6 +80,7 @@ type JobInfo struct {
 	EncryptKey         *openpgp.Entity `json:"-"`
 	SignKey            *openpgp.Entity `json:"-"`
 	ParentSnap         *JobInfo        `json:"-"`
+	UploadChunkSize    int             `json:"-"`
 }
 
 // SnapshotInfo represents a snapshot with relevant information.
@@ -171,6 +172,10 @@ func (j *JobInfo) ValidateSendFlags() error {
 
 	if disallowedSeps.MatchString(j.Separator) {
 		return fmt.Errorf("The separator provided (%s) should not be used as it can conflict with allowed characters in zfs components", j.Separator)
+	}
+
+	if j.UploadChunkSize < 5 || j.UploadChunkSize > 100 {
+		return fmt.Errorf("The uploadChunkSize provided (%d) is not between 5 and 100", j.UploadChunkSize)
 	}
 
 	return nil

@@ -53,6 +53,7 @@ type BackendConfig struct {
 	MaxBackoffTime          time.Duration
 	MaxRetryTime            time.Duration
 	TargetURI               string
+	UploadChunkSize         int
 }
 
 var (
@@ -78,6 +79,10 @@ func GetBackendForURI(uri string) (Backend, error) {
 		return &AWSS3Backend{}, nil
 	case FileBackendPrefix:
 		return &FileBackend{}, nil
+	case AzureBackendPrefix:
+		return &AzureBackend{}, nil
+	case B2BackendPrefix:
+		return &B2Backend{}, nil
 	default:
 		return nil, ErrInvalidPrefix
 	}

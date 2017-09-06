@@ -49,7 +49,7 @@ func (g *gcsMockClient) DeleteObject(ctx context.Context, bucket, object string)
 	return g.err
 }
 
-func (g *gcsMockClient) NewWriter(ctx context.Context, bucket, object string, crc32Hash uint32) io.WriteCloser {
+func (g *gcsMockClient) NewWriter(ctx context.Context, bucket, object string, crc32Hash uint32, chunkSize int) io.WriteCloser {
 	return g.writer
 }
 

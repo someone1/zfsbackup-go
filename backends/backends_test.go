@@ -27,6 +27,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/someone1/zfsbackup-go/helpers"
@@ -105,6 +106,7 @@ func prepareTestVols() (payload []byte, goodVol *helpers.VolumeInfo, badVol *hel
 	if err != nil {
 		return
 	}
+	goodVol.ObjectName = strings.Join([]string{"this", "is", "just", "a", "test"}, "-") + ".ext"
 
 	badVol, err = helpers.CreateSimpleVolume(context.Background(), false)
 	if err != nil {
@@ -114,6 +116,7 @@ func prepareTestVols() (payload []byte, goodVol *helpers.VolumeInfo, badVol *hel
 	if err != nil {
 		return
 	}
+	badVol.ObjectName = strings.Join([]string{"this", "is", "just", "a", "badtest"}, "-") + ".ext"
 
 	err = badVol.DeleteVolume()
 

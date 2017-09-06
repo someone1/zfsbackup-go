@@ -53,7 +53,7 @@ type GoogleCloudStorageBackend struct {
 type GCSClientInterface interface {
 	BucketExists(context.Context, string) error
 	DeleteObject(c context.Context, b, o string) error
-	NewWriter(c context.Context, b, o string, h uint32) io.WriteCloser
+	NewWriter(c context.Context, b, o string, h uint32, chunkSize int) io.WriteCloser
 	NewReader(c context.Context, b, o string) (io.ReadCloser, error)
 	ListBucket(c context.Context, b, p string) ([]string, error)
 	Close() error
@@ -73,10 +73,11 @@ func (g *gcsClient) DeleteObject(ctx context.Context, bucket, object string) err
 	return g.client.Bucket(bucket).Object(object).Delete(ctx)
 }
 
-func (g *gcsClient) NewWriter(ctx context.Context, bucket, object string, crc32Hash uint32) io.WriteCloser {
+func (g *gcsClient) NewWriter(ctx context.Context, bucket, object string, crc32Hash uint32, chunkSize int) io.WriteCloser {
 	w := g.client.Bucket(bucket).Object(object).NewWriter(ctx)
 	w.CRC32C = crc32Hash
 	w.SendCRC32C = true
+	w.ChunkSize = chunkSize
 	return w
 }
 
@@ -160,7 +161,7 @@ func (g *GoogleCloudStorageBackend) Upload(ctx context.Context, vol *helpers.Vol
 	}()
 
 	objName := g.prefix + vol.ObjectName
-	w := g.client.NewWriter(ctx, g.bucketName, objName, vol.CRC32CSum32)
+	w := g.client.NewWriter(ctx, g.bucketName, objName, vol.CRC32CSum32, g.conf.UploadChunkSize)
 	defer w.Close()
 	_, err := io.Copy(w, vol)
 	if err != nil {

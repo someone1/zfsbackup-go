@@ -32,9 +32,8 @@ import (
 	"strings"
 	"sync"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/Azure/azure-sdk-for-go/storage"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/someone1/zfsbackup-go/helpers"
 )
@@ -43,7 +42,6 @@ import (
 
 // AzureBackendPrefix is the URI prefix used for the AzureBackend.
 const AzureBackendPrefix = "azure"
-const minUploadSize = 5 * 1024 * 1024
 
 // AzureBackend integrates with Microsoft's Azure Storage Services.
 type AzureBackend struct {
@@ -61,13 +59,15 @@ type contextSender struct {
 	s   storage.Sender
 }
 
+// Send will ensure the request given is tied to the context we want it to be tied to.
 func (c *contextSender) Send(client *storage.Client, req *http.Request) (*http.Response, error) {
 	r := req.WithContext(c.ctx)
 	return c.s.Send(client, r)
 }
 
+// We need to create a new client for every API interaction as the Azure SDK doesn't support contexts!
 func (a *AzureBackend) getContainerClient(ctx context.Context) (*storage.Container, error) {
-	client, err := storage.NewClient(a.accountName, a.accountKey, a.azureURL, storage.DefaultAPIVersion, a.accountName == storage.StorageEmulatorAccountName)
+	client, err := storage.NewClient(a.accountName, a.accountKey, a.azureURL, storage.DefaultAPIVersion, a.accountName != storage.StorageEmulatorAccountName)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 	name := a.prefix + vol.ObjectName
 	blob := container.GetBlobReference(name)
 
-	// We will PutBlock for chunks of 5MiB and then finalize the block with a PutBlockList call
+	// We will PutBlock for chunks of UploadChunkSize and then finalize the block with a PutBlockList call
 	// Would use append, but append calls from the SDK don't support MD5 headers? https://github.com/Azure/azure-sdk-for-go/issues/757
 
 	// First initialize an empty block blob
@@ -138,10 +138,12 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 		return err
 	}
 
-	var blocks []storage.Block
-	var errg errgroup.Group
-	var blockid uint32
-	var readBytes uint64
+	var (
+		blocks    []storage.Block
+		errg      errgroup.Group
+		blockid   uint32
+		readBytes uint64
+	)
 	bs := make([]byte, 4)
 
 	// Currently, we can only have a max of 50000 blocks, 100MiB each, but we don't expect chunks that large
@@ -155,32 +157,35 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 		blocks = append(blocks, block)
 		blockid++
 
-		blockSize := vol.Size - readBytes
-		if blockSize > minUploadSize {
-			blockSize = minUploadSize
+		blockSize := uint64(a.conf.UploadChunkSize)
+		if !vol.IsUsingPipe() && blockSize > vol.Size-readBytes {
+			blockSize = vol.Size - readBytes
 		}
 
 		buf := make([]byte, blockSize)
-		md5sum := md5.Sum(buf)
-
-		_, rerr := io.ReadFull(vol, buf)
-		if rerr != nil {
+		n, rerr := io.ReadFull(vol, buf)
+		if rerr != nil && rerr != io.ErrUnexpectedEOF {
 			return rerr
 		}
-		readBytes += blockSize
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case a.conf.MaxParallelUploadBuffer <- true:
-			errg.Go(func() error {
-				defer func() { <-a.conf.MaxParallelUploadBuffer }()
-				return blob.PutBlockWithLength(block.ID, blockSize, bytes.NewBuffer(buf), &storage.PutBlockOptions{
-					ContentMD5: base64.StdEncoding.EncodeToString(md5sum[:]),
+
+		readBytes += uint64(n)
+		if n > 0 {
+			md5sum := md5.Sum(buf[:n])
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case a.conf.MaxParallelUploadBuffer <- true:
+				errg.Go(func() error {
+					defer func() { <-a.conf.MaxParallelUploadBuffer }()
+					return blob.PutBlockWithLength(block.ID, uint64(n), bytes.NewBuffer(buf[:n]), &storage.PutBlockOptions{
+						ContentMD5: base64.StdEncoding.EncodeToString(md5sum[:]),
+					})
 				})
-			})
+			}
 		}
 
-		if readBytes == vol.Size {
+		if !vol.IsUsingPipe() && readBytes == vol.Size || rerr == io.ErrUnexpectedEOF {
 			break
 		}
 	}
@@ -209,7 +214,7 @@ func (a *AzureBackend) Delete(ctx context.Context, name string) error {
 	return blob.Delete(nil)
 }
 
-// PreDownload will restore objects will do nothing for this backend.
+// PreDownload will do nothing for this backend.
 func (a *AzureBackend) PreDownload(ctx context.Context, keys []string) error {
 	return nil
 }
@@ -246,7 +251,7 @@ func (a *AzureBackend) List(ctx context.Context, prefix string) ([]string, error
 		return nil, err
 	}
 
-	l := make([]string, 0, 1000)
+	l := make([]string, 0, len(resp.Blobs))
 	for {
 		for _, obj := range resp.Blobs {
 			l = append(l, obj.Name)

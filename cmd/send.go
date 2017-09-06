@@ -51,6 +51,7 @@ var sendCmd = &cobra.Command{
 		helpers.AppLogger.Infof("Limiting the number of parallel uploads to %d", jobInfo.MaxParallelUploads)
 		helpers.AppLogger.Infof("Max Backoff Time will be %v", jobInfo.MaxBackoffTime)
 		helpers.AppLogger.Infof("Max Upload Retry Time will be %v", jobInfo.MaxRetryTime)
+		helpers.AppLogger.Infof("Upload Chunk Size will be %dMiB", jobInfo.UploadChunkSize)
 		if jobInfo.EncryptKey != nil {
 			helpers.AppLogger.Infof("Will be using encryption key for %s", jobInfo.EncryptTo)
 		}
@@ -87,6 +88,7 @@ func init() {
 	sendCmd.Flags().DurationVar(&jobInfo.MaxRetryTime, "maxRetryTime", 12*time.Hour, "the maximum time that can elapse when retrying a failed upload. Use 0 for no limit.")
 	sendCmd.Flags().DurationVar(&jobInfo.MaxBackoffTime, "maxBackoffTime", 30*time.Minute, "the maximum delay you'd want a worker to sleep before retrying an upload.")
 	sendCmd.Flags().StringVar(&jobInfo.Separator, "separator", "|", "the separator to use between object component names.")
+	sendCmd.Flags().IntVar(&jobInfo.UploadChunkSize, "uploadChunkSize", 10, "the chunk size, in MiB, to use when uploading. A minimum of 5MiB and maximum of 100MiB is enforced.")
 }
 
 func updateJobInfo(args []string) error {

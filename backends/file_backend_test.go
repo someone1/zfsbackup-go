@@ -278,7 +278,6 @@ func TestFileUpload(t *testing.T) {
 		t.Errorf("could not open good volume due to error %v", err)
 	}
 
-	goodVol.ObjectName = strings.Join([]string{"this", "is", "just", "a", "test"}, "|") + ".ext"
 	for idx, testCase := range testCases {
 		b := &FileBackend{}
 		if err := b.Init(context.Background(), config); err != nil {
