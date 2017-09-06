@@ -15,12 +15,11 @@ addons:
     sources:
       - sourceline: 'ppa:zfs-native/stable'
     packages:
-      - python
+      - linux-headers
       - ubuntu-zfs
-      - diffutils
 
 before_install:
-  - sudo modprobe zfs
+  - modprobe zfs
   - export VDEV=$(mktemp /tmp/testdevXXXX)
   - dd if=/dev/zero of=${VDEV} bs=2048 count=1048576
   - sudo zpool create tank ${VDEV}
