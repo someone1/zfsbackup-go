@@ -16,7 +16,7 @@ addons:
       - sourceline: 'ppa:zfs-native/stable'
     packages:
       - python
-      - zfs
+      - zfsutils
       - diffutils
 
 before_install:
