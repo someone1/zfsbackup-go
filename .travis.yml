@@ -16,6 +16,7 @@ addons:
       - sourceline: 'ppa:zfs-native/stable'
 
 before_install:
+  - sudo apt-get -qq update
   - sudo apt-get install linux-headers-`uname -r`
   - sudo apt-get install ubuntu-zfs
   - modprobe zfs
