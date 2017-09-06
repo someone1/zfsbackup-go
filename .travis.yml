@@ -38,9 +38,7 @@ before_install:
   - export AWS_SECRET_ACCESS_KEY=$(docker exec -it minio cat /root/.minio/config.json | python -c "import sys, json; print(json.load(sys.stdin)['credential']['secretKey'])")
 
 env:
-  - AZURE_CUSTOM_ENDPOINT=127.0.0.1:10000
-  - AWS_S3_CUSTOM_ENDPOINT=http://127.0.0.1:9000
-  - AWS_REGION=us-east-1
+  - AZURE_CUSTOM_ENDPOINT=127.0.0.1:10000 AWS_S3_CUSTOM_ENDPOINT=http://127.0.0.1:9000 AWS_REGION=us-east-1
 
 install:
   - $HOME/gopath/bin/gometalinter --install
