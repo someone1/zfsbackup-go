@@ -16,9 +16,9 @@ addons:
       - sourceline: 'ppa:zfs-native/stable'
     packages:
       - linux-headers-generic
-      - ubuntu-zfs
 
 before_install:
+  - sudo apt-get install ubuntu-zfs
   - modprobe zfs
   - export VDEV=$(mktemp /tmp/testdevXXXX)
   - dd if=/dev/zero of=${VDEV} bs=2048 count=1048576
