@@ -373,6 +373,7 @@ func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
 	err = wg.Wait()
 	if err != nil {
 		helpers.AppLogger.Errorf("There was an error during the restore process, aborting: %v", err)
+		return err
 	}
 
 	helpers.AppLogger.Noticef("Done. Elapsed Time: %v", time.Since(jobInfo.StartTime))

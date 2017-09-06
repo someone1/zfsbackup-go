@@ -269,7 +269,7 @@ func (a *AWSS3Backend) PreDownload(ctx context.Context, keys []string) error {
 		if err != nil {
 			return err
 		}
-		if *resp.StorageClass == s3.ObjectStorageClassGlacier {
+		if resp.StorageClass != nil && *resp.StorageClass == s3.ObjectStorageClassGlacier {
 			helpers.AppLogger.Debugf("s3 backend: key %s will be restored from the Glacier storage class.", key)
 			bytesToRestore += *resp.ContentLength
 			// Let's Start a restore
