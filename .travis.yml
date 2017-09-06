@@ -20,6 +20,7 @@ addons:
       - diffutils
 
 before_install:
+  - sudo modprobe zfs
   - export VDEV=$(mktemp /tmp/testdevXXXX)
   - dd if=/dev/zero of=${VDEV} bs=2048 count=1048576
   - sudo zpool create tank ${VDEV}
