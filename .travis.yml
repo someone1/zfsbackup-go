@@ -19,7 +19,7 @@ before_install:
   - sudo apt-get -qq update
   - sudo apt-get install linux-headers-`uname -r`
   - sudo apt-get install ubuntu-zfs
-  - modprobe zfs
+  - sudo modprobe zfs
   - export VDEV=$(mktemp /tmp/testdevXXXX)
   - dd if=/dev/zero of=${VDEV} bs=2048 count=1048576
   - sudo zpool create tank ${VDEV}
