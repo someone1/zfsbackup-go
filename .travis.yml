@@ -15,7 +15,7 @@ addons:
     sources:
       - sourceline: 'ppa:zfs-native/stable'
     packages:
-      - linux-headers
+      - linux-headers-generic
       - ubuntu-zfs
 
 before_install:
