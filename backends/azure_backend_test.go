@@ -126,7 +126,7 @@ func TestAzureBackend(t *testing.T) {
 	t.Run("List", func(t *testing.T) {
 		names, err := b.List(ctx, "")
 		if err != nil {
-			t.Fatalf("Issue listing container: %v", err)
+			t.Fatalf("Issue listing container: %v\n%v", err, names)
 		}
 
 		if len(names) != 1 {

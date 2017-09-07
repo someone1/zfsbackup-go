@@ -179,10 +179,9 @@ Global Flags:
 
 ## TODOs:
 * Make PGP cipher configurable.
-* Finish the verify command
 * Refactor
 * Test Coverage
-* Add more backends (e.g. Azure, BackBlaze, etc.)
+* Add more backends (e.g. SSH, SCP, etc.)
 * Add delete feature
 * Appease linters
 * Track intermediary snaps as part of backup jobs

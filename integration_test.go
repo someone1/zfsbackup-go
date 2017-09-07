@@ -21,8 +21,12 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -67,17 +71,42 @@ func TestIntegration(t *testing.T) {
 		Bucket: aws.String(s3TestBucketName),
 	})
 
+	t.Run("Version", func(t *testing.T) {
+		old := os.Stdout
+		defer func() { os.Stdout = old }()
+		buf := bytes.NewBuffer(nil)
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("could not create pipe for testing: %v", err)
+		}
+		os.Stdout = w
+		go func() {
+			io.Copy(buf, r)
+		}()
+
+		os.Args = []string{helpers.ProgramName, "version"}
+		if err = cmd.RootCmd.Execute(); err != nil {
+			t.Fatalf("error performing version: %v", err)
+		}
+
+		w.Close()
+		if !strings.Contains(buf.String(), fmt.Sprintf("Version:\tv%s", helpers.Version())) {
+			t.Fatalf("expected version in version command output, did not recieve one:\n%s", buf.String())
+		}
+
+	})
+
 	t.Run("Backup", func(t *testing.T) {
 		os.Args = []string{helpers.ProgramName, "send", "--logLevel", "debug", "tank/data@a", backends.AWSS3BackendPrefix + "://" + s3TestBucketName}
 		if err := cmd.RootCmd.Execute(); err != nil {
-			t.Fatalf("error performing backup")
+			t.Fatalf("error performing backup: %v", err)
 		}
 	})
 
 	t.Run("Restore", func(t *testing.T) {
 		os.Args = []string{helpers.ProgramName, "receive", "--logLevel", "debug", "-F", "tank/data@a", backends.AWSS3BackendPrefix + "://" + s3TestBucketName, "tank/data2"}
 		if err := cmd.RootCmd.Execute(); err != nil {
-			t.Fatalf("error performing receive")
+			t.Fatalf("error performing receive: %v", err)
 		}
 
 		cmd := exec.Command("diff", "-rq", "/tank/data", "/tank/data2")
