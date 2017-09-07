@@ -68,7 +68,6 @@ destination of your choosing.`,
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := RootCmd.Execute(); err != nil {
-		fmt.Println(err)
 		os.Exit(-1)
 	}
 }
@@ -85,6 +84,20 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&jobInfo.SignFrom, "signFrom", "", "the email of the user to sign on behalf of from the provided private keyring.")
 	RootCmd.PersistentFlags().StringVar(&helpers.ZFSPath, "zfsPath", "zfs", "the path to the zfs executable.")
 	passphrase = []byte(os.Getenv("PGP_PASSPHRASE"))
+}
+
+func resetRootFlags() {
+	jobInfo = helpers.JobInfo{}
+	numCores = 2
+	logLevel = "notice"
+	secretKeyRingPath = ""
+	publicKeyRingPath = ""
+	workingDirectory = "~/.zfsbackup"
+	jobInfo.ManifestPrefix = "manifests"
+	jobInfo.Compressor = "internal"
+	jobInfo.EncryptTo = ""
+	jobInfo.SignFrom = ""
+	helpers.ZFSPath = "zfs"
 }
 
 func processFlags(cmd *cobra.Command, args []string) error {
@@ -275,7 +288,7 @@ func setupGlobalVars() error {
 func validatePassphrase() {
 	var err error
 	if len(passphrase) == 0 {
-		fmt.Print("Enter passphrase to decrypt encryption key: ")
+		fmt.Fprint(helpers.Stdout, "Enter passphrase to decrypt encryption key: ")
 		passphrase, err = terminal.ReadPassword(0)
 		if err != nil {
 			helpers.AppLogger.Errorf("Error reading user input for encryption key passphrase: %v", err)

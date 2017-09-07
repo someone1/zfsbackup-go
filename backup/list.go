@@ -127,13 +127,11 @@ func linkManifests(manifests []*helpers.JobInfo) map[string][]*helpers.JobInfo {
 	manifestTree := make(map[string][]*helpers.JobInfo)
 	manifestsByID := make(map[string]*helpers.JobInfo)
 	for idx := range manifests {
-		if _, ok := manifestTree[manifests[idx].VolumeName]; !ok {
-			manifestTree[manifests[idx].VolumeName] = make([]*helpers.JobInfo, 0, 10)
-		}
+		key := manifests[idx].VolumeName
 
-		manifestID := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s%s%v", manifests[idx].VolumeName, manifests[idx].BaseSnapshot.Name, manifests[idx].BaseSnapshot.CreationTime))))
+		manifestID := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s%s%v", key, manifests[idx].BaseSnapshot.Name, manifests[idx].BaseSnapshot.CreationTime))))
 
-		manifestTree[manifests[idx].VolumeName] = append(manifestTree[manifests[idx].VolumeName], manifests[idx])
+		manifestTree[key] = append(manifestTree[key], manifests[idx])
 
 		// Case 1: Full Backups, nothing to link
 		if manifests[idx].IncrementalSnapshot.Name == "" {

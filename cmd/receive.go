@@ -61,6 +61,24 @@ func init() {
 	receiveCmd.Flags().IntVar(&jobInfo.MaxFileBuffer, "maxFileBuffer", 5, "the maximum number of files to have active during the upload process. Should be set to at least the number of max parallel uploads. Set to 0 to bypass local storage and upload straight to your destination - this will limit you to a single destination and disable any hash checks for the upload where available.")
 	receiveCmd.Flags().DurationVar(&jobInfo.MaxRetryTime, "maxRetryTime", 12*time.Hour, "the maximum time that can elapse when retrying a failed download. Use 0 for no limit.")
 	receiveCmd.Flags().DurationVar(&jobInfo.MaxBackoffTime, "maxBackoffTime", 30*time.Minute, "the maximum delay you'd want a worker to sleep before retrying an download.")
+	receiveCmd.Flags().StringVar(&jobInfo.Separator, "separator", "|", "the separator to use between object component names (used only for the initial manifest we are looking for).")
+}
+
+// Exists solely for integration testing
+func ResetReceiveJobInfo() {
+	resetRootFlags()
+	jobInfo.AutoRestore = false
+	jobInfo.FullPath = false
+	jobInfo.LastPath = false
+	jobInfo.Force = false
+	jobInfo.NotMounted = false
+	jobInfo.Origin = ""
+	jobInfo.BaseSnapshot = helpers.SnapshotInfo{}
+	jobInfo.IncrementalSnapshot = helpers.SnapshotInfo{}
+	jobInfo.MaxFileBuffer = 5
+	jobInfo.MaxRetryTime = 12 * time.Hour
+	jobInfo.MaxBackoffTime = 30 * time.Minute
+	jobInfo.Separator = "|"
 }
 
 func validateReceiveFlags(cmd *cobra.Command, args []string) error {

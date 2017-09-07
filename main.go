@@ -21,13 +21,9 @@
 package main
 
 import (
-	"os"
-
 	"github.com/someone1/zfsbackup-go/cmd"
 )
 
 func main() {
-	if err := cmd.RootCmd.Execute(); err != nil {
-		os.Exit(-1)
-	}
+	cmd.Execute()
 }

@@ -20,10 +20,18 @@
 
 package helpers
 
-import "github.com/op/go-logging"
+import (
+	"io"
+	"os"
+
+	"github.com/op/go-logging"
+)
 
 // LogModuleName is the module name for our application's logger.
 const LogModuleName = ProgramName
 
 // AppLogger is our application's logger.
 var AppLogger = logging.MustGetLogger(LogModuleName)
+
+// Stdout is where to output standard messaging to
+var Stdout io.Writer = os.Stdout

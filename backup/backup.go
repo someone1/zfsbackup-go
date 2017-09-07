@@ -24,6 +24,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -42,6 +43,10 @@ import (
 
 	"github.com/someone1/zfsbackup-go/backends"
 	"github.com/someone1/zfsbackup-go/helpers"
+)
+
+var (
+	ErrNoOp = errors.New("nothing new to sync")
 )
 
 // ProcessSmartOptions will compute the snapshots to use
@@ -97,7 +102,7 @@ func ProcessSmartOptions(ctx context.Context, jobInfo *helpers.JobInfo) error {
 			return fmt.Errorf("no snapshot to increment from - try doing a full backup instead")
 		}
 		if lastComparableSnapshots[0].Equal(&snapshots[0]) {
-			return fmt.Errorf("no new snapshot to sync")
+			return ErrNoOp
 		}
 		jobInfo.IncrementalSnapshot = *lastComparableSnapshots[0]
 	}
@@ -119,7 +124,7 @@ func ProcessSmartOptions(ctx context.Context, jobInfo *helpers.JobInfo) error {
 			return fmt.Errorf("want to do an incremental backup but last incremental backup at destinations do not match")
 		}
 		if lastBackup[0].Equal(&snapshots[0]) {
-			return fmt.Errorf("no new snapshot to sync")
+			return ErrNoOp
 		}
 
 		if ok, verr := validateSnapShotExists(ctx, lastComparableSnapshots[0], jobInfo.VolumeName); verr != nil {

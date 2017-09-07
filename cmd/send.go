@@ -91,6 +91,34 @@ func init() {
 	sendCmd.Flags().IntVar(&jobInfo.UploadChunkSize, "uploadChunkSize", 10, "the chunk size, in MiB, to use when uploading. A minimum of 5MiB and maximum of 100MiB is enforced.")
 }
 
+// ResetSendJobInfo exists solely for integration testing
+func ResetSendJobInfo() {
+	resetRootFlags()
+	// ZFS send command options
+	jobInfo.Replication = false
+	jobInfo.Deduplication = false
+	jobInfo.IncrementalSnapshot = helpers.SnapshotInfo{}
+	jobInfo.BaseSnapshot = helpers.SnapshotInfo{}
+	fullIncremental = ""
+	jobInfo.Properties = false
+
+	// Specific to download only
+	jobInfo.VolumeSize = 200
+	jobInfo.CompressionLevel = 6
+	jobInfo.Resume = false
+	jobInfo.Full = false
+	jobInfo.Incremental = false
+	jobInfo.FullIfOlderThan = -1 * time.Minute
+
+	jobInfo.MaxFileBuffer = 5
+	jobInfo.MaxParallelUploads = 4
+	maxUploadSpeed = 0
+	jobInfo.MaxRetryTime = 12 * time.Hour
+	jobInfo.MaxBackoffTime = 30 * time.Minute
+	jobInfo.Separator = "|"
+	jobInfo.UploadChunkSize = 10
+}
+
 func updateJobInfo(args []string) error {
 	jobInfo.StartTime = time.Now()
 	jobInfo.Version = helpers.VersionNumber
@@ -167,7 +195,7 @@ func updateJobInfo(args []string) error {
 		}
 		if err := backup.ProcessSmartOptions(context.Background(), &jobInfo); err != nil {
 			helpers.AppLogger.Errorf("Error while trying to process smart option - %v", err)
-			return errInvalidInput
+			return err
 		}
 		helpers.AppLogger.Debugf("Utilizing smart option.")
 	}

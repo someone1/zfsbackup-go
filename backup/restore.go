@@ -88,10 +88,9 @@ func AutoRestore(pctx context.Context, jobInfo *helpers.JobInfo) error {
 
 	// Restore to the latest snapshot available for the volume provided if no snapshot was provided
 	if jobInfo.BaseSnapshot.Name == "" {
-		helpers.AppLogger.Infof("Trying to determine latest snapshot for volume %s.", jobInfo.BaseSnapshot.Name)
-		job := volumeSnaps[len(volumeSnaps)-1]
-		jobInfo.BaseSnapshot = job.BaseSnapshot
-		helpers.AppLogger.Infof("Restoring to snapshot %s.", job.BaseSnapshot.Name)
+		helpers.AppLogger.Infof("Trying to determine latest snapshot for volume %s.", jobInfo.VolumeName)
+		jobInfo.BaseSnapshot = (volumeSnaps[len(volumeSnaps)-1].BaseSnapshot)
+		helpers.AppLogger.Infof("Restoring to snapshot %s.", jobInfo.BaseSnapshot.Name)
 	}
 
 	// Find the matching backup job for the snapshot we want to restore to
@@ -255,7 +254,7 @@ func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
 		if os.IsNotExist(err) {
 			err = backend.PreDownload(ctx, []string{tempManifest.ObjectName})
 			if err != nil {
-				helpers.AppLogger.Errorf("Error trying to pre download manifest volume - %v", err)
+				helpers.AppLogger.Errorf("Error trying to pre download manifest volume %s - %v", tempManifest.ObjectName, err)
 				return err
 			}
 			// Try and download the manifest file from the backend

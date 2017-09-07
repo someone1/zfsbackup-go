@@ -36,7 +36,7 @@ var versionCmd = &cobra.Command{
 	Long: `This will output the version of zfsbackup in use and information about
 the runtime and architecture.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Printf("\tProgram Name:\t%s\n\tVersion:\tv%s\n\tOS Target:\t%s\n\tArch Target:\t%s\n\tCompiled With:\t%s\n\tGo Version:\t%s\n", helpers.ProgramName, helpers.Version(), runtime.GOOS, runtime.GOARCH, runtime.Compiler, runtime.Version())
+		fmt.Fprintf(helpers.Stdout, "\tProgram Name:\t%s\n\tVersion:\tv%s\n\tOS Target:\t%s\n\tArch Target:\t%s\n\tCompiled With:\t%s\n\tGo Version:\t%s\n", helpers.ProgramName, helpers.Version(), runtime.GOOS, runtime.GOARCH, runtime.Compiler, runtime.Version())
 		return nil
 	},
 }

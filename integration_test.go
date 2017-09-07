@@ -23,7 +23,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -35,6 +34,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/someone1/zfsbackup-go/backends"
+	"github.com/someone1/zfsbackup-go/backup"
 	"github.com/someone1/zfsbackup-go/cmd"
 	"github.com/someone1/zfsbackup-go/helpers"
 )
@@ -72,39 +72,69 @@ func TestIntegration(t *testing.T) {
 	})
 
 	t.Run("Version", func(t *testing.T) {
-		old := os.Stdout
-		defer func() { os.Stdout = old }()
+		old := helpers.Stdout
 		buf := bytes.NewBuffer(nil)
-		r, w, err := os.Pipe()
-		if err != nil {
-			t.Fatalf("could not create pipe for testing: %v", err)
-		}
-		os.Stdout = w
-		go func() {
-			io.Copy(buf, r)
-		}()
+		helpers.Stdout = buf
+		defer func() { helpers.Stdout = old }()
 
 		os.Args = []string{helpers.ProgramName, "version"}
 		if err = cmd.RootCmd.Execute(); err != nil {
 			t.Fatalf("error performing version: %v", err)
 		}
 
-		w.Close()
 		if !strings.Contains(buf.String(), fmt.Sprintf("Version:\tv%s", helpers.Version())) {
 			t.Fatalf("expected version in version command output, did not recieve one:\n%s", buf.String())
 		}
 
 	})
 
+	bucket := backends.AWSS3BackendPrefix + "://" + s3TestBucketName
+
 	t.Run("Backup", func(t *testing.T) {
-		os.Args = []string{helpers.ProgramName, "send", "--logLevel", "debug", "tank/data@a", backends.AWSS3BackendPrefix + "://" + s3TestBucketName}
+		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", "debug", "tank/data@a", bucket})
 		if err := cmd.RootCmd.Execute(); err != nil {
 			t.Fatalf("error performing backup: %v", err)
 		}
+
+		cmd.ResetSendJobInfo()
+
+		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", "debug", "-i", "tank/data@a", "tank/data@b", bucket})
+		if err := cmd.RootCmd.Execute(); err != nil {
+			t.Fatalf("error performing backup: %v", err)
+		}
+
+		cmd.ResetSendJobInfo()
+
+		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", "debug", "--increment", "tank/data", bucket})
+		if err := cmd.RootCmd.Execute(); err != nil {
+			t.Fatalf("error performing backup: %v", err)
+		}
+
+		cmd.ResetSendJobInfo()
+
+		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", "debug", "--increment", "tank/data", bucket})
+		if err := cmd.RootCmd.Execute(); err != backup.ErrNoOp {
+			t.Fatalf("expecting error %v, but got %v instead", backup.ErrNoOp, err)
+		}
 	})
 
+	// We pass blank "-i" flags since we are running through multiple executions for testing.
 	t.Run("Restore", func(t *testing.T) {
-		os.Args = []string{helpers.ProgramName, "receive", "--logLevel", "debug", "-F", "tank/data@a", backends.AWSS3BackendPrefix + "://" + s3TestBucketName, "tank/data2"}
+		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", "debug", "-F", "tank/data@a", bucket, "tank/data2"})
+		if err := cmd.RootCmd.Execute(); err != nil {
+			t.Fatalf("error performing receive: %v", err)
+		}
+
+		cmd.ResetReceiveJobInfo()
+
+		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", "debug", "-F", "-i", "tank/data@a", "tank/data@b", bucket, "tank/data2"})
+		if err := cmd.RootCmd.Execute(); err != nil {
+			t.Fatalf("error performing receive: %v", err)
+		}
+
+		cmd.ResetReceiveJobInfo()
+
+		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", "debug", "-F", "--auto", "tank/data", bucket, "tank/data2"})
 		if err := cmd.RootCmd.Execute(); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
