@@ -20,22 +20,7 @@ before_install:
   - sudo apt-get install linux-headers-`uname -r`
   - sudo apt-get install ubuntu-zfs
   - sudo modprobe zfs
-  - export VDEV=$(mktemp /tmp/testdevXXXX)
-  - dd if=/dev/zero of=${VDEV} bs=2048 count=1048576
-  - sudo zpool create tank ${VDEV}
-  - sudo zfs allow -ld -e send,receive,create,mount,mountpoint tank
-  - sudo zfs create tank/data
-  - sudo dd if=/dev/urandom of=/tank/data/test bs=1024 count=409600
-  - sudo zfs snapshot tank/data@a
-  - go get github.com/mattn/goveralls
-  - go get github.com/alecthomas/gometalinter
-  - go get github.com/mitchellh/gox
-  - docker pull arafato/azurite
-  - docker pull minio/minio
-  - docker run -d -p 10000:10000 --name azurite --restart=on-failure arafato/azurite
-  - docker run -d -p 9000:9000 --name minio minio/minio server /data
-  - export AWS_ACCESS_KEY_ID=$(docker exec -it minio cat /root/.minio/config.json | python -c "import sys, json; print(json.load(sys.stdin)['credential']['accessKey'])")
-  - export AWS_SECRET_ACCESS_KEY=$(docker exec -it minio cat /root/.minio/config.json | python -c "import sys, json; print(json.load(sys.stdin)['credential']['secretKey'])")
+  - source ./travis-setup.sh
 
 env:
   - AZURE_CUSTOM_ENDPOINT=127.0.0.1:10000 AWS_S3_CUSTOM_ENDPOINT=http://127.0.0.1:9000 AWS_REGION=us-east-1
@@ -47,3 +32,5 @@ install:
 script:
   - $HOME/gopath/bin/goveralls -service=travis-ci
   - make fmt vet test test-race build
+
+after_script: source ./travis-teardown.sh
