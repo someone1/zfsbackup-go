@@ -21,10 +21,19 @@ This project was inspired by the [duplicity project](http://duplicity.nongnu.org
 ### Supported Backends:
 * Google Cloud Storage (gs://)
   - Auth details: https://developers.google.com/identity/protocols/application-default-credentials
+  - [99.999999999% durability](https://cloud.google.com/storage/docs/storage-classes) - Using erasure encodings
 * Amazon AWS S3 (s3://) (Glacier supported indirectly via lifecycle rules)
   - Auth details: https://godoc.org/github.com/aws/aws-sdk-go/aws/session#hdr-Environment_Variables
+  - [99.999999999% durability](https://aws.amazon.com/s3/faqs/#data-protection) - Using replication and checksums on the data for integrity validation and repair
 * Any S3 Compatible Storage Provider (e.g. Minio, StorageMadeEasy, Ceph, etc.)
   - Set the AWS_S3_CUSTOM_ENDPOINT environmental variable to the compatible target API URI
+* Azure Blob Storage (azure://)
+  - Auth: Set the AZURE_ACCOUNT_NAME and AZURE_ACCOUNT_KEY environmental variables to the appropiate values
+  - Point to a custom endpoint by setting the AZURE_CUSTOM_ENDPOINT envrionmental variable
+  - Although no durability target is provided, there is an in-depth explanation of their architecture [here](http://sigops.org/sosp/sosp11/current/2011-Cascais/printable/11-calder.pdf] - Using the Reed-Solomon erasure encoding and user-configurable redundancy settings
+* BackBlaze B2 (b2://)
+  - Auth: Set the B2_ACCOUNT_ID and B2_ACCOUNT_KEY environmental variables to the appropiate values
+  - [99.999999%](https://help.backblaze.com/hc/en-us/articles/218485257-B2-Resiliency-Durability-and-Availability) - Using the Reed-Solomon erasure encoding
 * Local file path (file://[relative|/absolute]/local/path)
 
 
@@ -119,11 +128,9 @@ Available Commands:
   list        List all backup sets found at the provided target.
   receive     receive will restore a snapshot of a ZFS volume similar to how the "zfs recv" command works.
   send        send will backup of a ZFS volume similar to how the "zfs send" command works.
-  verify      Verify will ensure that the backupset for the given snapshot exists in the target
   version     Print the version of zfsbackup in use and relevant compile information
 
 Flags:
-      --compressor string          specify to use the internal (parallel) gzip implementation or an external binary (e.g. gzip, bzip2, pigz, lzma, xz, etc. Syntax must be similiar to the gzip compression tool) to compress the stream for storage. Please take into consideration time, memory, and CPU usage for any of the compressors used. (default "internal")
       --encryptTo string           the email of the user to encrypt the data to from the provided public keyring.
   -h, --help                       help for zfsbackup
       --logLevel string            this controls the verbosity level of logging. Possible values are critical, error, warning, notice, info, debug. (default "notice")
@@ -146,6 +153,7 @@ Usage:
 
 Flags:
       --compressionLevel int       the compression level to use with the compressor. Valid values are between 1-9. (default 6)
+      --compressor string          specify to use the internal (parallel) gzip implementation or an external binary (e.g. gzip, bzip2, pigz, lzma, xz, etc.) Syntax must be similar to the gzip compression tool) to compress the stream for storage. Please take into consideration time, memory, and CPU usage for any of the compressors used. All manifests utilize the internal compressor. (default "internal")
   -D, --deduplication              See the -D flag for zfs send for more information.
       --full                       set this flag to take a full backup of the specified volume using the most recent snapshot.
       --fullIfOlderThan duration   set this flag to do an incremental backup of the most recent snapshot from the most recent snapshot found in the target unless the it's been greater than the time specified in this flag, then do a full backup. (default -1m0s)
@@ -160,12 +168,47 @@ Flags:
       --maxUploadSpeed uint        the maximum upload speed (in KB/s) the program should use between all upload workers. Use 0 for no limit
   -p, --properties                 See the -p flag on zfs send for more information.
   -R, --replication                See the -R flag on zfs send for more information
-      --resume                     set this flag to true when you want to try and resume a previously cancled or failed backup. It is up to the caller to ensure the same command line arguements are provided between the original backup and the resumed one.
+      --resume                     set this flag to true when you want to try and resume a previously cancled or failed backup. It is up to the caller to ensure the same command line arguments are provided between the original backup and the resumed one.
       --separator string           the separator to use between object component names. (default "|")
+      --uploadChunkSize int        the chunk size, in MiB, to use when uploading. A minimum of 5MiB and maximum of 100MiB is enforced. (default 10)
       --volsize uint               the maximum size (in MiB) a volume should be before splitting to a new volume. Note: zfsbackup will try its best to stay close/under this limit but it is not garaunteed. (default 200)
 
 Global Flags:
-      --compressor string          specify to use the internal (parallel) gzip implementation or an external binary (e.g. gzip, bzip2, pigz, lzma, xz, etc. Syntax must be similiar to the gzip compression tool) to compress the stream for storage. Please take into consideration time, memory, and CPU usage for any of the compressors used. (default "internal")
+      --encryptTo string           the email of the user to encrypt the data to from the provided public keyring.
+      --logLevel string            this controls the verbosity level of logging. Possible values are critical, error, warning, notice, info, debug. (default "notice")
+      --manifestPrefix string      the prefix to use for all manifest files. (default "manifests")
+      --numCores int               number of CPU cores to utilize. Do not exceed the number of CPU cores on the system. (default 2)
+      --publicKeyRingPath string   the path to the PGP public key ring
+      --secretKeyRingPath string   the path to the PGP secret key ring
+      --signFrom string            the email of the user to sign on behalf of from the provided private keyring.
+      --workingDirectory string    the working directory path for zfsbackup. (default "~/.zfsbackup")
+      --zfsPath string             the path to the zfs executable. (default "zfs")
+Usage:
+  zfsbackup send [flags] filesystem|volume|snapshot uri(s)
+
+Flags:
+      --compressionLevel int       the compression level to use with the compressor. Valid values are between 1-9. (default 6)
+      --compressor string          specify to use the internal (parallel) gzip implementation or an external binary (e.g. gzip, bzip2, pigz, lzma, xz, etc.) Syntax must be similar to the gzip compression tool) to compress the stream for storage. Please take into consideration time, memory, and CPU usage for any of the compressors used. All manifests utilize the internal compressor. (default "internal")
+  -D, --deduplication              See the -D flag for zfs send for more information.
+      --full                       set this flag to take a full backup of the specified volume using the most recent snapshot.
+      --fullIfOlderThan duration   set this flag to do an incremental backup of the most recent snapshot from the most recent snapshot found in the target unless the it's been greater than the time specified in this flag, then do a full backup. (default -1m0s)
+  -h, --help                       help for send
+      --increment                  set this flag to do an incremental backup of the most recent snapshot from the most recent snapshot found in the target.
+  -i, --incremental string         See the -i flag on zfs send for more information
+  -I, --intermediary string        See the -I flag on zfs send for more information
+      --maxBackoffTime duration    the maximum delay you'd want a worker to sleep before retrying an upload. (default 30m0s)
+      --maxFileBuffer int          the maximum number of files to have active during the upload process. Should be set to at least the number of max parallel uploads. Set to 0 to bypass local storage and upload straight to your destination - this will limit you to a single destination and disable any hash checks for the upload where available. (default 5)
+      --maxParallelUploads int     the maximum number of uploads to run in parallel. (default 4)
+      --maxRetryTime duration      the maximum time that can elapse when retrying a failed upload. Use 0 for no limit. (default 12h0m0s)
+      --maxUploadSpeed uint        the maximum upload speed (in KB/s) the program should use between all upload workers. Use 0 for no limit
+  -p, --properties                 See the -p flag on zfs send for more information.
+  -R, --replication                See the -R flag on zfs send for more information
+      --resume                     set this flag to true when you want to try and resume a previously cancled or failed backup. It is up to the caller to ensure the same command line arguments are provided between the original backup and the resumed one.
+      --separator string           the separator to use between object component names. (default "|")
+      --uploadChunkSize int        the chunk size, in MiB, to use when uploading. A minimum of 5MiB and maximum of 100MiB is enforced. (default 10)
+      --volsize uint               the maximum size (in MiB) a volume should be before splitting to a new volume. Note: zfsbackup will try its best to stay close/under this limit but it is not garaunteed. (default 200)
+
+Global Flags:
       --encryptTo string           the email of the user to encrypt the data to from the provided public keyring.
       --logLevel string            this controls the verbosity level of logging. Possible values are critical, error, warning, notice, info, debug. (default "notice")
       --manifestPrefix string      the prefix to use for all manifest files. (default "manifests")

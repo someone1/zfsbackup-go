@@ -63,7 +63,7 @@ func (b *B2Backend) Init(ctx context.Context, conf *BackendConfig, opts ...Optio
 	}
 
 	accountID := os.Getenv("B2_ACCOUNT_ID")
-	accountKey := os.Getenv("B2_SECRET_KEY")
+	accountKey := os.Getenv("B2_ACCOUNT_KEY")
 
 	uriParts := strings.Split(cleanPrefix, "/")
 
