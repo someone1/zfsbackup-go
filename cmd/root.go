@@ -79,7 +79,6 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&publicKeyRingPath, "publicKeyRingPath", "", "the path to the PGP public key ring")
 	RootCmd.PersistentFlags().StringVar(&workingDirectory, "workingDirectory", "~/.zfsbackup", "the working directory path for zfsbackup.")
 	RootCmd.PersistentFlags().StringVar(&jobInfo.ManifestPrefix, "manifestPrefix", "manifests", "the prefix to use for all manifest files.")
-	RootCmd.PersistentFlags().StringVar(&jobInfo.Compressor, "compressor", "internal", "specify to use the internal (parallel) gzip implementation or an external binary (e.g. gzip, bzip2, pigz, lzma, xz, etc. Syntax must be similar to the gzip compression tool) to compress the stream for storage. Please take into consideration time, memory, and CPU usage for any of the compressors used.")
 	RootCmd.PersistentFlags().StringVar(&jobInfo.EncryptTo, "encryptTo", "", "the email of the user to encrypt the data to from the provided public keyring.")
 	RootCmd.PersistentFlags().StringVar(&jobInfo.SignFrom, "signFrom", "", "the email of the user to sign on behalf of from the provided private keyring.")
 	RootCmd.PersistentFlags().StringVar(&helpers.ZFSPath, "zfsPath", "zfs", "the path to the zfs executable.")
@@ -94,7 +93,6 @@ func resetRootFlags() {
 	publicKeyRingPath = ""
 	workingDirectory = "~/.zfsbackup"
 	jobInfo.ManifestPrefix = "manifests"
-	jobInfo.Compressor = "internal"
 	jobInfo.EncryptTo = ""
 	jobInfo.SignFrom = ""
 	helpers.ZFSPath = "zfs"

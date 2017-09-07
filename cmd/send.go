@@ -81,6 +81,7 @@ func init() {
 	sendCmd.Flags().BoolVar(&jobInfo.Full, "full", false, "set this flag to take a full backup of the specified volume using the most recent snapshot.")
 	sendCmd.Flags().BoolVar(&jobInfo.Incremental, "increment", false, "set this flag to do an incremental backup of the most recent snapshot from the most recent snapshot found in the target.")
 	sendCmd.Flags().DurationVar(&jobInfo.FullIfOlderThan, "fullIfOlderThan", -1*time.Minute, "set this flag to do an incremental backup of the most recent snapshot from the most recent snapshot found in the target unless the it's been greater than the time specified in this flag, then do a full backup.")
+	sendCmd.Flags().StringVar(&jobInfo.Compressor, "compressor", helpers.InternalCompressor, "specify to use the internal (parallel) gzip implementation or an external binary (e.g. gzip, bzip2, pigz, lzma, xz, etc.) Syntax must be similar to the gzip compression tool) to compress the stream for storage. Please take into consideration time, memory, and CPU usage for any of the compressors used. All manifests utilize the internal compressor.")
 
 	sendCmd.Flags().IntVar(&jobInfo.MaxFileBuffer, "maxFileBuffer", 5, "the maximum number of files to have active during the upload process. Should be set to at least the number of max parallel uploads. Set to 0 to bypass local storage and upload straight to your destination - this will limit you to a single destination and disable any hash checks for the upload where available.")
 	sendCmd.Flags().IntVar(&jobInfo.MaxParallelUploads, "maxParallelUploads", 4, "the maximum number of uploads to run in parallel.")
@@ -117,6 +118,7 @@ func ResetSendJobInfo() {
 	jobInfo.MaxBackoffTime = 30 * time.Minute
 	jobInfo.Separator = "|"
 	jobInfo.UploadChunkSize = 10
+	jobInfo.Compressor = helpers.InternalCompressor
 }
 
 func updateJobInfo(args []string) error {

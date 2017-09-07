@@ -57,6 +57,8 @@ var (
 const (
 	// BufferSize is the size of various buffers and copy limits around the application
 	BufferSize = 256 * humanize.KiByte // 256KiB
+	// InternalCompressor is the key used to indicate we want to utilize the internal compressor
+	InternalCompressor = "internal"
 )
 
 // VolumeInfo holds all necessary information for a Volume as part of a backup
@@ -177,16 +179,16 @@ func (v *VolumeInfo) OpenVolume() error {
 }
 
 // ExtractLocal will try and open a local file for extraction
-func ExtractLocal(ctx context.Context, j *JobInfo, path string) (*VolumeInfo, error) {
+func ExtractLocal(ctx context.Context, j *JobInfo, path string, isManifest bool) (*VolumeInfo, error) {
 	v := new(VolumeInfo)
 	v.filename = path
-	err := v.Extract(ctx, j)
+	err := v.Extract(ctx, j, isManifest)
 	return v, err
 }
 
 // Extract will setup the volume for reading such that reading from it will handle any
 // decryption, signature verification, and decompression that was used on it.
-func (v *VolumeInfo) Extract(ctx context.Context, j *JobInfo) error {
+func (v *VolumeInfo) Extract(ctx context.Context, j *JobInfo, isManifest bool) error {
 	if !v.usingPipe {
 		f, ferr := os.Open(v.filename)
 		if ferr != nil {
@@ -211,9 +213,13 @@ func (v *VolumeInfo) Extract(ctx context.Context, j *JobInfo) error {
 	}
 
 	var err error
+	compressor := j.Compressor
+	if isManifest {
+		compressor = InternalCompressor
+	}
 
-	switch j.Compressor {
-	case "internal":
+	switch compressor {
+	case InternalCompressor:
 		v.rw, err = gzip.NewReader(v.r)
 		if err != nil {
 			return err
@@ -221,7 +227,7 @@ func (v *VolumeInfo) Extract(ctx context.Context, j *JobInfo) error {
 		v.r = v.rw
 	case "":
 	default:
-		v.cmd = exec.CommandContext(ctx, j.Compressor, "-c", "-d")
+		v.cmd = exec.CommandContext(ctx, compressor, "-c", "-d")
 		v.cmd.Stdin = v.r
 
 		decompressor, err := v.cmd.StdoutPipe()
@@ -389,7 +395,7 @@ func (v *VolumeInfo) CopyTo(dest string) (err error) {
 
 // prepareVolume returns a VolumeInfo, filename parts, extension parts, and an error
 // compress -> encrypt/sign -> output
-func prepareVolume(ctx context.Context, j *JobInfo, pipe bool) (*VolumeInfo, []string, []string, error) {
+func prepareVolume(ctx context.Context, j *JobInfo, pipe bool, isManifest bool) (*VolumeInfo, []string, []string, error) {
 	v, err := CreateSimpleVolume(ctx, pipe)
 	if err != nil {
 		return nil, nil, nil, err
@@ -413,9 +419,14 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe bool) (*VolumeInfo, []s
 		v.w = pgpWriter
 	}
 
+	compressorName := j.Compressor
+	if isManifest {
+		compressorName = InternalCompressor
+	}
+
 	// Prepare the compression writer, if any
-	switch j.Compressor {
-	case "internal":
+	switch compressorName {
+	case InternalCompressor:
 		v.cw, _ = gzip.NewWriterLevel(v.w, j.CompressionLevel)
 		v.w = v.cw
 		extensions = append([]string{"gz"}, extensions...)
@@ -425,9 +436,9 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe bool) (*VolumeInfo, []s
 	case "":
 		printCompressCMD.Do(func() { AppLogger.Infof("Will not be using any compression.") })
 	default:
-		extensions = append([]string{j.Compressor}, extensions...)
+		extensions = append([]string{compressorName}, extensions...)
 
-		v.cmd = exec.CommandContext(ctx, j.Compressor, "-c", fmt.Sprintf("-%d", j.CompressionLevel))
+		v.cmd = exec.CommandContext(ctx, compressorName, "-c", fmt.Sprintf("-%d", j.CompressionLevel))
 		v.cmd.Stdout = v.w
 
 		compressor, err := v.cmd.StdinPipe()
@@ -442,7 +453,10 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe bool) (*VolumeInfo, []s
 			AppLogger.Infof("Will be using the external binary %s for compression with compression level %d. The executing command will be: %s", j.Compressor, j.CompressionLevel, strings.Join(v.cmd.Args, " "))
 		})
 
-		v.cmd.Start()
+		err = v.cmd.Start()
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
 	nameParts := []string{j.VolumeName}
@@ -463,7 +477,7 @@ func CreateManifestVolume(ctx context.Context, j *JobInfo) (*VolumeInfo, error) 
 	extensions := []string{"manifest"}
 	nameParts := []string{j.ManifestPrefix}
 
-	v, baseParts, ext, err := prepareVolume(ctx, j, false)
+	v, baseParts, ext, err := prepareVolume(ctx, j, false, true)
 	if err != nil {
 		return nil, err
 	}
@@ -489,7 +503,7 @@ func CreateBackupVolume(ctx context.Context, j *JobInfo, volnum int64) (*VolumeI
 		pipe = true
 	}
 
-	v, nameParts, ext, err := prepareVolume(ctx, j, pipe)
+	v, nameParts, ext, err := prepareVolume(ctx, j, pipe, false)
 	if err != nil {
 		return nil, err
 	}

@@ -469,7 +469,7 @@ func receiveStream(ctx context.Context, cmd *exec.Cmd, j *helpers.JobInfo, c <-c
 					return nil
 				}
 				helpers.AppLogger.Debugf("Processing %s.", vol.ObjectName)
-				eerr := vol.Extract(ctx, j)
+				eerr := vol.Extract(ctx, j, false)
 				if eerr != nil {
 					helpers.AppLogger.Errorf("Error while trying to read from volume %s - %v", vol.ObjectName, eerr)
 					return err

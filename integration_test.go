@@ -78,9 +78,7 @@ func TestIntegration(t *testing.T) {
 		defer func() { helpers.Stdout = old }()
 
 		os.Args = []string{helpers.ProgramName, "version"}
-		if err = cmd.RootCmd.Execute(); err != nil {
-			t.Fatalf("error performing version: %v", err)
-		}
+		main()
 
 		if !strings.Contains(buf.String(), fmt.Sprintf("Version:\tv%s", helpers.Version())) {
 			t.Fatalf("expected version in version command output, did not recieve one:\n%s", buf.String())
@@ -105,7 +103,7 @@ func TestIntegration(t *testing.T) {
 
 		cmd.ResetSendJobInfo()
 
-		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", "debug", "--increment", "tank/data", bucket})
+		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", "debug", "--compressor", "xz", "--compressionLevel", "2", "--increment", "tank/data", bucket})
 		if err := cmd.RootCmd.Execute(); err != nil {
 			t.Fatalf("error performing backup: %v", err)
 		}
@@ -133,16 +131,30 @@ func TestIntegration(t *testing.T) {
 		}
 
 		cmd.ResetReceiveJobInfo()
+		os.RemoveAll("~/.zfsbackup")
 
 		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", "debug", "-F", "--auto", "tank/data", bucket, "tank/data2"})
 		if err := cmd.RootCmd.Execute(); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
 
-		cmd := exec.Command("diff", "-rq", "/tank/data", "/tank/data2")
-		err := cmd.Run()
+		diffCmd := exec.Command("diff", "-rq", "/tank/data", "/tank/data2")
+		err := diffCmd.Run()
 		if err != nil {
-			t.Fatalf("unexpected difference comparing the restored backup: %v", err)
+			t.Fatalf("unexpected difference comparing the restored backup data2: %v", err)
+		}
+
+		cmd.ResetReceiveJobInfo()
+
+		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", "debug", "-F", "--auto", "-o", "origin=tank/data@b", "tank/data", bucket, "tank/data3"})
+		if err = cmd.RootCmd.Execute(); err != nil {
+			t.Fatalf("error performing receive: %v", err)
+		}
+
+		diffCmd = exec.Command("diff", "-rq", "/tank/data", "/tank/data3")
+		err = diffCmd.Run()
+		if err != nil {
+			t.Fatalf("unexpected difference comparing the restored backup data3: %v", err)
 		}
 	})
 

@@ -164,7 +164,7 @@ func linkManifests(manifests []*helpers.JobInfo) map[string][]*helpers.JobInfo {
 
 func readManifest(ctx context.Context, manifestPath string, j *helpers.JobInfo) (*helpers.JobInfo, error) {
 	decodedManifest := new(helpers.JobInfo)
-	manifestVol, err := helpers.ExtractLocal(ctx, j, manifestPath)
+	manifestVol, err := helpers.ExtractLocal(ctx, j, manifestPath, true)
 	if err != nil {
 		return nil, err
 	}
