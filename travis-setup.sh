@@ -4,7 +4,7 @@
 export VDEV=$(mktemp /tmp/testdevXXXX)
 dd if=/dev/zero of=${VDEV} bs=2048 count=1048576
 sudo zpool create tank ${VDEV}
-sudo zfs allow -ld -e send,receive,create,mount,mountpoint tank
+sudo zfs allow -ld -e send,receive,create,mount,mountpoint,get,list tank
 sudo zfs create tank/data
 sudo dd if=/dev/urandom of=/tank/data/test bs=1024 count=409600
 sudo zfs snapshot tank/data@a

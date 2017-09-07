@@ -30,7 +30,7 @@ install:
   - make get
 
 script:
-  - $HOME/gopath/bin/goveralls -service=travis-ci
-  - make fmt vet test test-race build
+  - sudo -E $HOME/gopath/bin/goveralls -service=travis-ci
+  - sudo -E make fmt vet test test-race build
 
 after_script: source ./travis-teardown.sh

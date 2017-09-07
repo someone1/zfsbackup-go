@@ -58,7 +58,7 @@ var (
 	s3BadKey    = "badkey"
 )
 
-const s3TestBucketName = "s3buckettest"
+const s3TestBucketName = "s3bucketbackendtest"
 
 func (m *mockS3Client) DeleteObjectWithContext(ctx aws.Context, in *s3.DeleteObjectInput, _ ...request.Option) (*s3.DeleteObjectOutput, error) {
 	if *in.Key == s3BadKey {
@@ -485,7 +485,11 @@ func TestS3Backend(t *testing.T) {
 		Bucket: aws.String(s3TestBucketName),
 	})
 	if err != nil {
-		t.Fatalf("could not create S3 bucket due to error: %v", err)
+		if aerr, ok := err.(awserr.Error); ok {
+			if aerr.Code() != "BucketAlreadyOwnedByYou" {
+				t.Fatalf("could not create S3 bucket due to error: %v", err)
+			}
+		}
 	}
 
 	defer client.DeleteBucket(&s3.DeleteBucketInput{
