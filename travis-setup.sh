@@ -27,3 +27,6 @@ sudo docker run -d -p 9000:9000 --name minio minio/minio server /data
 sleep 30
 export AWS_ACCESS_KEY_ID=$(sudo docker exec -it minio cat /root/.minio/config.json | python -c "import sys, json; print(json.load(sys.stdin)['credential']['accessKey'])")
 export AWS_SECRET_ACCESS_KEY=$(sudo docker exec -it minio cat /root/.minio/config.json | python -c "import sys, json; print(json.load(sys.stdin)['credential']['secretKey'])")
+
+# Scratch dir for tests
+mkdir ./scratch

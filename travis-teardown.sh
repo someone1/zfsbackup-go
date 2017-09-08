@@ -11,6 +11,7 @@ sudo zpool destroy -f tank || true
 
 # Remove temp file
 sudo rm ${VDEV} || true
+sudo rm -rf ./scratch
 
 # Clear env variables
 export VDEV=

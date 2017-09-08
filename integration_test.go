@@ -183,9 +183,7 @@ func TestIntegration(t *testing.T) {
 		{"Azure", azurebucket, "tank/data2"},
 	}
 	for _, test := range restoreTest {
-		//t.Logf("Running Test List%s", test.backend)
 		t.Run(fmt.Sprintf("List%s", test.backend), listWrapper(test.bucket))
-		//t.Logf("Running Test Restore%s", test.backend)
 		t.Run(fmt.Sprintf("Restore%s", test.backend), restoreWrapper(test.bucket, test.target))
 	}
 }
@@ -273,9 +271,8 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 		}
 
 		cmd.ResetReceiveJobInfo()
-		os.RemoveAll("~/.zfsbackup")
 
-		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "--auto", "tank/data", bucket, target})
+		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "--workingDirectory", "./scratch", "-F", "--auto", "tank/data", bucket, target})
 		if err := cmd.RootCmd.Execute(); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
