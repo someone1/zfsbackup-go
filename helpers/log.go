@@ -35,3 +35,6 @@ var AppLogger = logging.MustGetLogger(LogModuleName)
 
 // Stdout is where to output standard messaging to
 var Stdout io.Writer = os.Stdout
+
+// JSONOutput will signal if we should dump the results to Stdout JSON formatted
+var JSONOutput bool = false

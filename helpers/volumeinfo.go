@@ -457,6 +457,8 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe bool, isManifest bool) 
 		if err != nil {
 			return nil, nil, nil, err
 		}
+
+		// TODO: Signal properly if the process closes prematurely
 	}
 
 	nameParts := []string{j.VolumeName}

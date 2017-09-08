@@ -40,6 +40,8 @@ var receiveCmd = &cobra.Command{
 	Long:    `receive will restore a snapshot of a ZFS volume similar to how the "zfs recv" command works.`,
 	PreRunE: validateReceiveFlags,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		helpers.AppLogger.Infof("Limiting the number of active files to %d", jobInfo.MaxFileBuffer)
+
 		if jobInfo.AutoRestore {
 			return backup.AutoRestore(context.Background(), &jobInfo)
 		}
@@ -64,7 +66,7 @@ func init() {
 	receiveCmd.Flags().StringVar(&jobInfo.Separator, "separator", "|", "the separator to use between object component names (used only for the initial manifest we are looking for).")
 }
 
-// Exists solely for integration testing
+// ResetReceiveJobInfo exists solely for integration testing
 func ResetReceiveJobInfo() {
 	resetRootFlags()
 	jobInfo.AutoRestore = false

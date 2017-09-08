@@ -165,6 +165,7 @@ func (g *GoogleCloudStorageBackend) Upload(ctx context.Context, vol *helpers.Vol
 	if _, err := io.Copy(w, vol); err != nil {
 		w.Close()
 		helpers.AppLogger.Debugf("gs backend: Error while uploading volume %s - %v", vol.ObjectName, err)
+		return err
 	}
 	return w.Close()
 

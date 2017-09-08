@@ -82,6 +82,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&jobInfo.EncryptTo, "encryptTo", "", "the email of the user to encrypt the data to from the provided public keyring.")
 	RootCmd.PersistentFlags().StringVar(&jobInfo.SignFrom, "signFrom", "", "the email of the user to sign on behalf of from the provided private keyring.")
 	RootCmd.PersistentFlags().StringVar(&helpers.ZFSPath, "zfsPath", "zfs", "the path to the zfs executable.")
+	RootCmd.PersistentFlags().BoolVar(&helpers.JSONOutput, "jsonOutput", false, "dump results as a JSON string - on success only")
 	passphrase = []byte(os.Getenv("PGP_PASSPHRASE"))
 }
 
@@ -96,6 +97,7 @@ func resetRootFlags() {
 	jobInfo.EncryptTo = ""
 	jobInfo.SignFrom = ""
 	helpers.ZFSPath = "zfs"
+	helpers.JSONOutput = false
 }
 
 func processFlags(cmd *cobra.Command, args []string) error {

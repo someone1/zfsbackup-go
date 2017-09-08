@@ -22,10 +22,20 @@ package cmd
 
 import (
 	"context"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/someone1/zfsbackup-go/backup"
+	"github.com/someone1/zfsbackup-go/helpers"
+)
+
+var (
+	startsWith string
+	beforeStr  string
+	afterStr   string
+	before     time.Time
+	after      time.Time
 )
 
 // listCmd represents the list command
@@ -35,13 +45,33 @@ var listCmd = &cobra.Command{
 	Long:    `List all backup sets found at the provided target.`,
 	PreRunE: validateListFlags,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if startsWith != "" {
+			if startsWith[len(startsWith)-1:] == "*" {
+				helpers.AppLogger.Infof("Listing all backup jobs for volumes starting with %s", startsWith)
+			} else {
+				helpers.AppLogger.Infof("Listing all backup jobs for volume %s", startsWith)
+			}
+		}
+
+		if !before.IsZero() {
+			helpers.AppLogger.Infof("Listing all back jobs of snapshots taken before %v", before)
+		}
+
+		if !after.IsZero() {
+			helpers.AppLogger.Infof("Listing all back jobs of snapshots taken after %v", after)
+		}
+
 		jobInfo.Destinations = []string{args[0]}
-		return backup.List(context.Background(), &jobInfo)
+		return backup.List(context.Background(), &jobInfo, startsWith, before, after)
 	},
 }
 
 func init() {
 	RootCmd.AddCommand(listCmd)
+
+	listCmd.Flags().StringVar(&startsWith, "volumeName", "", "Filter results to only this volume name, can end with a '*' to match as only a prefix")
+	listCmd.Flags().StringVar(&beforeStr, "before", "", "Filter results to only this backups before this specified date & time (format: yyyy-MM-ddTHH:mm:ss, parsed in local TZ)")
+	listCmd.Flags().StringVar(&afterStr, "after", "", "Filter results to only this backups after this specified date & time (format: yyyy-MM-ddTHH:mm:ss, parsed in local TZ)")
 }
 
 func validateListFlags(cmd *cobra.Command, args []string) error {
@@ -49,5 +79,33 @@ func validateListFlags(cmd *cobra.Command, args []string) error {
 		cmd.Usage()
 		return errInvalidInput
 	}
+
+	if beforeStr != "" {
+		parsed, perr := time.ParseInLocation(time.RFC3339[:19], beforeStr, time.Local)
+		if perr != nil {
+			helpers.AppLogger.Errorf("could not parse before time '%s' due to error: %v", beforeStr, perr)
+			return perr
+		}
+		before = parsed
+	}
+
+	if afterStr != "" {
+		parsed, perr := time.ParseInLocation(time.RFC3339[:19], afterStr, time.Local)
+		if perr != nil {
+			helpers.AppLogger.Errorf("could not parse before time '%s' due to error: %v", beforeStr, perr)
+			return perr
+		}
+		after = parsed
+	}
 	return nil
+}
+
+// ResetListJobInfo exists solely for integration testing
+func ResetListJobInfo() {
+	resetRootFlags()
+	startsWith = ""
+	beforeStr = ""
+	afterStr = ""
+	before = time.Time{}
+	after = time.Time{}
 }

@@ -46,7 +46,8 @@ import (
 )
 
 var (
-	ErrNoOp = errors.New("nothing new to sync")
+	ErrNoOp       = errors.New("nothing new to sync")
+	manifestmutex sync.Mutex
 )
 
 // ProcessSmartOptions will compute the snapshots to use
@@ -315,7 +316,9 @@ func Backup(pctx context.Context, jobInfo *helpers.JobInfo) error {
 				if !vol.IsManifest {
 					helpers.AppLogger.Debugf("Volume %s has finished the entire pipeline.", vol.ObjectName)
 					helpers.AppLogger.Debugf("Adding %s to the manifest volume list.", vol.ObjectName)
+					manifestmutex.Lock()
 					jobInfo.Volumes = append(jobInfo.Volumes, vol)
+					manifestmutex.Unlock()
 					// Write a manifest file and save it locally in order to resume later
 					manifestVol, err := saveManifest(ctx, jobInfo, false)
 					if err != nil {
@@ -347,8 +350,9 @@ func Backup(pctx context.Context, jobInfo *helpers.JobInfo) error {
 		// TODO: How to incorporate contexts in this go routine?
 		maniwg.Wait() // Wait until the ZFS send command has completed and all volumes have been uploaded to all backends.
 		helpers.AppLogger.Infof("All volumes dispatched in pipeline, finalizing manifest file.")
-
+		manifestmutex.Lock()
 		jobInfo.EndTime = time.Now()
+		manifestmutex.Unlock()
 		manifestVol, err := saveManifest(ctx, jobInfo, true)
 		if err != nil {
 			return err
@@ -364,7 +368,21 @@ func Backup(pctx context.Context, jobInfo *helpers.JobInfo) error {
 	}
 
 	totalWrittenBytes := jobInfo.TotalBytesWritten()
-	helpers.AppLogger.Noticef("Done.\n\tTotal ZFS Stream Bytes: %d (%s)\n\tTotal Bytes Written: %d (%s)\n\tElapsed Time: %v\n\tTotal Files Uploaded: %d", jobInfo.ZFSStreamBytes, humanize.IBytes(jobInfo.ZFSStreamBytes), totalWrittenBytes, humanize.IBytes(totalWrittenBytes), time.Since(jobInfo.StartTime), len(jobInfo.Volumes)+1)
+	if helpers.JSONOutput {
+		var doneOutput = struct {
+			TotalZFSBytes    uint64
+			TotalBackupBytes uint64
+			ElapsedTime      time.Duration
+			FilesUploaded    int
+		}{jobInfo.ZFSStreamBytes, totalWrittenBytes, time.Since(jobInfo.StartTime), len(jobInfo.Volumes) + 1}
+		if j, jerr := json.Marshal(doneOutput); jerr != nil {
+			helpers.AppLogger.Errorf("could not ouput json due to error - %v", jerr)
+		} else {
+			fmt.Fprintf(helpers.Stdout, "%s", string(j))
+		}
+	} else {
+		fmt.Fprintf(helpers.Stdout, "Done.\n\tTotal ZFS Stream Bytes: %d (%s)\n\tTotal Bytes Written: %d (%s)\n\tElapsed Time: %v\n\tTotal Files Uploaded: %d", jobInfo.ZFSStreamBytes, humanize.IBytes(jobInfo.ZFSStreamBytes), totalWrittenBytes, humanize.IBytes(totalWrittenBytes), time.Since(jobInfo.StartTime), len(jobInfo.Volumes)+1)
+	}
 
 	helpers.AppLogger.Debugf("Cleaning up resources...")
 
@@ -378,6 +396,8 @@ func Backup(pctx context.Context, jobInfo *helpers.JobInfo) error {
 }
 
 func saveManifest(ctx context.Context, j *helpers.JobInfo, final bool) (*helpers.VolumeInfo, error) {
+	manifestmutex.Lock()
+	defer manifestmutex.Unlock()
 	sort.Sort(helpers.ByVolumeNumber(j.Volumes))
 
 	// Setup Manifest File
@@ -435,7 +455,7 @@ func sendStream(ctx context.Context, j *helpers.JobInfo, c chan<- *helpers.Volum
 		skipBytes, volNum := j.TotalBytesStreamedAndVols()
 		lastTotalBytes = skipBytes
 		for {
-			// Skipy byes if we are resuming
+			// Skip bytes if we are resuming
 			if skipBytes > 0 {
 				helpers.AppLogger.Debugf("Want to skip %d bytes.", skipBytes)
 				written, serr := io.CopyN(ioutil.Discard, counter, int64(skipBytes))
@@ -525,7 +545,9 @@ func sendStream(ctx context.Context, j *helpers.JobInfo, c chan<- *helpers.Volum
 		}
 	}()
 
+	manifestmutex.Lock()
 	j.ZFSCommandLine = strings.Join(cmd.Args, " ")
+	manifestmutex.Unlock()
 	// Wait for the command to finish
 
 	err = group.Wait()
@@ -534,7 +556,9 @@ func sendStream(ctx context.Context, j *helpers.JobInfo, c chan<- *helpers.Volum
 		return err
 	}
 	helpers.AppLogger.Infof("zfs send completed without error")
+	manifestmutex.Lock()
 	j.ZFSStreamBytes = counter.Count()
+	manifestmutex.Unlock()
 	return nil
 }
 
@@ -584,8 +608,10 @@ func tryResume(ctx context.Context, j *helpers.JobInfo) error {
 			return fmt.Errorf("option mismatch")
 		}
 
+		manifestmutex.Lock()
 		j.Volumes = originalManifest.Volumes
 		j.StartTime = originalManifest.StartTime
+		manifestmutex.Unlock()
 		helpers.AppLogger.Infof("Will be resuming previous backup attempt.")
 	}
 	return nil

@@ -333,7 +333,11 @@ func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
 					retryconf := backoff.WithContext(be, ctx)
 
 					operation := func() error {
-						return processSequence(ctx, sequence, backend, usePipe)
+						oerr := processSequence(ctx, sequence, backend, usePipe)
+						if oerr != nil {
+							helpers.AppLogger.Warningf("error trying to download file %s - %v", sequence.volume.ObjectName, oerr)
+						}
+						return oerr
 					}
 
 					helpers.AppLogger.Debugf("Downloading volume %s.", sequence.volume.ObjectName)
@@ -392,7 +396,6 @@ func processSequence(ctx context.Context, sequence downloadSequence, backend bac
 		return err
 	}
 
-	defer vol.Close()
 	vol.ObjectName = sequence.volume.ObjectName
 	if usePipe {
 		sequence.c <- vol
@@ -408,7 +411,10 @@ func processSequence(ctx context.Context, sequence downloadSequence, backend bac
 		}
 		return err
 	}
-	vol.Close()
+	if cerr := vol.Close(); cerr != nil {
+		helpers.AppLogger.Noticef("Could not close temporary file to download %s due to error - %v.", sequence.volume.ObjectName, cerr)
+		return cerr
+	}
 
 	// Verify the SHA256 Hash, if it doesn't match, ditch it!
 	if vol.SHA256Sum != sequence.volume.SHA256Sum {
@@ -419,10 +425,11 @@ func processSequence(ctx context.Context, sequence downloadSequence, backend bac
 		vol.DeleteVolume()
 		return fmt.Errorf("SHA256 hash mismatch for %s, got %s but expected %s", sequence.volume.ObjectName, vol.SHA256Sum, sequence.volume.SHA256Sum)
 	}
+	helpers.AppLogger.Debugf("Downloaded %s.", sequence.volume.ObjectName)
+
 	if !usePipe {
 		sequence.c <- vol
 	}
-	helpers.AppLogger.Debugf("Downloaded %s.", sequence.volume.ObjectName)
 
 	return nil
 }
@@ -461,7 +468,6 @@ func receiveStream(ctx context.Context, cmd *exec.Cmd, j *helpers.JobInfo, c <-c
 	// Extract ZFS stream from files and send it to the zfs command
 	group.Go(func() error {
 		defer once.Do(func() { cout.Close() })
-		buf := make([]byte, 1024*1024)
 		for {
 			select {
 			case vol, ok := <-c:
@@ -474,7 +480,7 @@ func receiveStream(ctx context.Context, cmd *exec.Cmd, j *helpers.JobInfo, c <-c
 					helpers.AppLogger.Errorf("Error while trying to read from volume %s - %v", vol.ObjectName, eerr)
 					return err
 				}
-				_, eerr = io.CopyBuffer(cout, vol, buf)
+				_, eerr = io.Copy(cout, vol)
 				if eerr != nil {
 					helpers.AppLogger.Errorf("Error while trying to read from volume %s - %v", vol.ObjectName, eerr)
 					return eerr

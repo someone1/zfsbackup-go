@@ -21,6 +21,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"runtime"
 
@@ -36,7 +37,32 @@ var versionCmd = &cobra.Command{
 	Long: `This will output the version of zfsbackup in use and information about
 the runtime and architecture.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Fprintf(helpers.Stdout, "\tProgram Name:\t%s\n\tVersion:\tv%s\n\tOS Target:\t%s\n\tArch Target:\t%s\n\tCompiled With:\t%s\n\tGo Version:\t%s\n", helpers.ProgramName, helpers.Version(), runtime.GOOS, runtime.GOARCH, runtime.Compiler, runtime.Version())
+		var output string
+		if helpers.JSONOutput {
+			j, err := json.Marshal(struct {
+				Name      string
+				Version   string
+				OS        string
+				Arch      string
+				Compiled  string
+				GoVersion string
+			}{
+				Name:      helpers.ProgramName,
+				Version:   helpers.Version(),
+				OS:        runtime.GOOS,
+				Arch:      runtime.GOARCH,
+				Compiled:  runtime.Compiler,
+				GoVersion: runtime.Version(),
+			})
+			if err != nil {
+				helpers.AppLogger.Errorf("could not dump version info to JSON - %v", err)
+				return err
+			}
+			output = string(j)
+		} else {
+			output = fmt.Sprintf("\tProgram Name:\t%s\n\tVersion:\tv%s\n\tOS Target:\t%s\n\tArch Target:\t%s\n\tCompiled With:\t%s\n\tGo Version:\t%s", helpers.ProgramName, helpers.Version(), runtime.GOOS, runtime.GOARCH, runtime.Compiler, runtime.Version())
+		}
+		fmt.Fprintln(helpers.Stdout, output)
 		return nil
 	},
 }

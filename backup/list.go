@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/someone1/zfsbackup-go/helpers"
 )
@@ -36,7 +37,7 @@ import (
 // and then read and output the manifest information describing the backup sets
 // found in the target destination.
 // TODO: Group by volume name?
-func List(pctx context.Context, jobInfo *helpers.JobInfo) error {
+func List(pctx context.Context, jobInfo *helpers.JobInfo, startswith string, before, after time.Time) error {
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
 
@@ -68,28 +69,65 @@ func List(pctx context.Context, jobInfo *helpers.JobInfo) error {
 		return derr
 	}
 
-	var output []string
-	output = append(output, fmt.Sprintf("Found %d backup sets:\n", len(decodedManifests)))
+	// Filter Manifests to only results we care about
+	filteredResults := decodedManifests[:0]
 	for _, manifest := range decodedManifests {
-		output = append(output, manifest.String())
-	}
-
-	if len(localOnlyFiles) > 0 {
-		output = append(output, fmt.Sprintf("There are %d manifests found locally that are not on the target destination.", len(localOnlyFiles)))
-		localOnlyOuput := []string{"The following manifests were found locally and can be removed using the clean command."}
-		for _, filename := range localOnlyFiles {
-			manifestPath := filepath.Join(localCachePath, filename)
-			decodedManifest, derr := readManifest(ctx, manifestPath, jobInfo)
-			if derr != nil {
-				helpers.AppLogger.Warningf("Could not read local only manifest %s due to error %v", manifestPath, derr)
+		if startswith != "" {
+			if startswith[len(startswith)-1:] == "*" {
+				if len(startswith) != 1 && !strings.HasPrefix(manifest.VolumeName, startswith[:len(startswith)-1]) {
+					continue
+				}
+			} else if strings.Compare(startswith, manifest.VolumeName) != 0 {
 				continue
 			}
-			localOnlyOuput = append(localOnlyOuput, decodedManifest.String())
 		}
-		helpers.AppLogger.Infof(strings.Join(localOnlyOuput, "\n"))
+
+		if !before.IsZero() && !manifest.BaseSnapshot.CreationTime.Before(before) {
+			continue
+		}
+
+		if !after.IsZero() && !manifest.BaseSnapshot.CreationTime.After(after) {
+			continue
+		}
+
+		filteredResults = append(filteredResults, manifest)
 	}
 
-	helpers.AppLogger.Noticef(strings.Join(output, "\n"))
+	decodedManifests = filteredResults
+
+	if !helpers.JSONOutput {
+		var output []string
+
+		output = append(output, fmt.Sprintf("Found %d backup sets:\n", len(decodedManifests)))
+		for _, manifest := range decodedManifests {
+			output = append(output, manifest.String())
+		}
+
+		if len(localOnlyFiles) > 0 {
+			output = append(output, fmt.Sprintf("There are %d manifests found locally that are not on the target destination.", len(localOnlyFiles)))
+			localOnlyOuput := []string{"The following manifests were found locally and can be removed using the clean command."}
+			for _, filename := range localOnlyFiles {
+				manifestPath := filepath.Join(localCachePath, filename)
+				decodedManifest, derr := readManifest(ctx, manifestPath, jobInfo)
+				if derr != nil {
+					helpers.AppLogger.Warningf("Could not read local only manifest %s due to error %v", manifestPath, derr)
+					continue
+				}
+				localOnlyOuput = append(localOnlyOuput, decodedManifest.String())
+			}
+			helpers.AppLogger.Infof(strings.Join(localOnlyOuput, "\n"))
+		}
+		fmt.Fprintln(helpers.Stdout, strings.Join(output, "\n"))
+	} else {
+		organizedManifests := linkManifests(decodedManifests)
+		j, jerr := json.Marshal(organizedManifests)
+		if jerr != nil {
+			helpers.AppLogger.Errorf("could not marshal results to JSON - %v", jerr)
+			return jerr
+		}
+
+		fmt.Fprintln(helpers.Stdout, string(j))
+	}
 
 	return nil
 }
