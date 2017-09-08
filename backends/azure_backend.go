@@ -26,6 +26,7 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"os"
@@ -195,6 +196,12 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 		helpers.AppLogger.Debugf("azure backend: Error while uploading volume %s - %v", vol.ObjectName, err)
 		return err
 	}
+
+	md5Raw, merr := hex.DecodeString(vol.MD5Sum)
+	if merr != nil {
+		return merr
+	}
+	blob.Properties.ContentMD5 = base64.StdEncoding.EncodeToString(md5Raw)
 
 	// Finally, finalize the storage blob by giving Azure the block list order
 	err = blob.PutBlockList(blocks, nil)

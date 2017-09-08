@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/kurin/blazer/b2"
 
@@ -39,6 +40,7 @@ const B2BackendPrefix = "b2"
 type B2Backend struct {
 	conf       *BackendConfig
 	bucketCli  *b2.Bucket
+	mutex      sync.Mutex
 	prefix     string
 	bucketName string
 }
@@ -76,7 +78,12 @@ func (b *B2Backend) Init(ctx context.Context, conf *BackendConfig, opts ...Optio
 		opt.Apply(b)
 	}
 
-	client, err := b2.NewClient(ctx, accountID, accountKey, b2.Transport(bufferedRT{b.conf.MaxParallelUploadBuffer}))
+	var cliopts []b2.ClientOption
+	if conf.MaxParallelUploadBuffer != nil {
+		cliopts = append(cliopts, b2.Transport(bufferedRT{b.conf.MaxParallelUploadBuffer}))
+	}
+
+	client, err := b2.NewClient(ctx, accountID, accountKey, cliopts...)
 	if err != nil {
 		return err
 	}
@@ -87,16 +94,22 @@ func (b *B2Backend) Init(ctx context.Context, conf *BackendConfig, opts ...Optio
 	}
 
 	_, _, err = b.bucketCli.ListCurrentObjects(ctx, 0, nil)
+	if err == io.EOF {
+		err = nil
+	}
 	return err
 }
 
 // Upload will upload the provided volume to this B2Backend's configured bucket+prefix
 func (b *B2Backend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
+	// We will be doing multipart uploads, no need to allow multiple calls of Upload to initiate new uploads.
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+
 	name := b.prefix + vol.ObjectName
 	w := b.bucketCli.Object(name).NewWriter(ctx)
 
 	w.ConcurrentUploads = b.conf.MaxParallelUploads
-	w.Resume = true
 	w.ChunkSize = b.conf.UploadChunkSize
 
 	if _, err := io.Copy(w, vol); err != nil {

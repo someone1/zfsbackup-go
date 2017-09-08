@@ -619,7 +619,7 @@ func retryUploadChainer(ctx context.Context, in <-chan *helpers.VolumeInfo, b ba
 					be.MaxElapsedTime = j.MaxRetryTime
 					retryconf := backoff.WithContext(be, ctx)
 
-					operation := volUploadWrapper(ctx, b, vol)
+					operation := volUploadWrapper(ctx, b, vol, prefix)
 					if err := backoff.Retry(operation, retryconf); err != nil {
 						helpers.AppLogger.Errorf("%s backend: Failed to upload volume %s due to error: %v", prefix, vol.ObjectName, err)
 						return err
@@ -642,14 +642,18 @@ func retryUploadChainer(ctx context.Context, in <-chan *helpers.VolumeInfo, b ba
 	return out, gwg
 }
 
-func volUploadWrapper(ctx context.Context, b backends.Backend, vol *helpers.VolumeInfo) func() error {
+func volUploadWrapper(ctx context.Context, b backends.Backend, vol *helpers.VolumeInfo, prefix string) func() error {
 	return func() error {
 		if err := vol.OpenVolume(); err != nil {
-			helpers.AppLogger.Warningf("Error while opening volume %s - %v", vol.ObjectName, err)
+			helpers.AppLogger.Warningf("%s: Error while opening volume %s - %v", prefix, vol.ObjectName, err)
 			return err
 		}
 		defer vol.Close()
 
-		return b.Upload(ctx, vol)
+		err := b.Upload(ctx, vol)
+		if err != nil {
+			helpers.AppLogger.Warningf("%s: Error while uploading volume %s - %v", prefix, vol.ObjectName, err)
+		}
+		return err
 	}
 }
