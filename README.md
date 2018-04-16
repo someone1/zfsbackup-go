@@ -1,4 +1,5 @@
 # ZFSBackup  [![Build Status](https://travis-ci.org/someone1/zfsbackup-go.svg?branch=master)](https://travis-ci.org/someone1/zfsbackup-go) [![Go Report Card](https://goreportcard.com/badge/github.com/someone1/zfsbackup-go)](https://goreportcard.com/report/github.com/someone1/zfsbackup-go) [![Coverage Status](https://coveralls.io/repos/github/someone1/zfsbackup-go/badge.svg?branch=master)](https://coveralls.io/github/someone1/zfsbackup-go?branch=master)
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fsomeone1%2Fzfsbackup-go.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fsomeone1%2Fzfsbackup-go?ref=badge_shield)
 
 DISCLAIMER: This is a work in progress in still considered beta though I personally use this in a production environment and have tested it for my own use cases (looking for feedback on other people's experience before considering this "production ready").
 
@@ -196,3 +197,7 @@ Global Flags:
 * Appease linters
 * Track intermediary snaps as part of backup jobs
 * Parity archives?
+
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fsomeone1%2Fzfsbackup-go.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fsomeone1%2Fzfsbackup-go?ref=badge_large)
