@@ -24,6 +24,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/md5"
+	"crypto/sha1"
 	"crypto/sha256"
 	"fmt"
 	"hash"
@@ -68,6 +69,8 @@ type VolumeInfo struct {
 	SHA256          hash.Hash   `json:"-"`
 	MD5             hash.Hash   `json:"-"`
 	CRC32C          hash.Hash32 `json:"-"`
+	SHA1            hash.Hash   `json:"-"`
+	SHA1Sum         string      `json:"-"`
 	SHA256Sum       string
 	MD5Sum          string
 	CRC32CSum32     uint32
@@ -366,6 +369,11 @@ func (v *VolumeInfo) Close() error {
 		v.MD5 = nil
 	}
 
+	if v.SHA1 != nil {
+		v.SHA1Sum = fmt.Sprintf("%x", v.SHA1.Sum(nil))
+		v.SHA1 = nil
+	}
+
 	v.w = nil
 	if v.pr == nil {
 		v.r = nil
@@ -527,6 +535,7 @@ func CreateSimpleVolume(ctx context.Context, pipe bool) (*VolumeInfo, error) {
 		SHA256:     sha256.New(),
 		CRC32C:     crc32.New(crc32.MakeTable(crc32.Castagnoli)),
 		MD5:        md5.New(),
+		SHA1:       sha1.New(),
 		CreateTime: time.Now(),
 	}
 
@@ -554,7 +563,7 @@ func CreateSimpleVolume(ctx context.Context, pipe bool) (*VolumeInfo, error) {
 	v.w = v.bufw
 
 	// Compute hashes
-	v.w = io.MultiWriter(v.w, v.SHA256, v.CRC32C, v.MD5)
+	v.w = io.MultiWriter(v.w, v.SHA256, v.CRC32C, v.MD5, v.SHA1)
 
 	// Add a writer that counts how many bytes have been written
 	v.counter = datacounter.NewWriterCounter(v.w)

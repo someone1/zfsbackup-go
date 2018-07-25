@@ -113,6 +113,9 @@ func (b *B2Backend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
 	w.ChunkSize = b.conf.UploadChunkSize
 	w.Resume = true
 
+	sha1Opt := b2.WithAttrsOption(&b2.Attrs{SHA1: vol.SHA1Sum})
+	sha1Opt(w)
+
 	if _, err := io.Copy(w, vol); err != nil {
 		w.Close()
 		helpers.AppLogger.Debugf("b2 backend: Error while uploading volume %s - %v", vol.ObjectName, err)
