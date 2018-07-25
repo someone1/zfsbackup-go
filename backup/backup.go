@@ -671,14 +671,14 @@ func retryUploadChainer(ctx context.Context, in <-chan *helpers.VolumeInfo, b ba
 func volUploadWrapper(ctx context.Context, b backends.Backend, vol *helpers.VolumeInfo, prefix string) func() error {
 	return func() error {
 		if err := vol.OpenVolume(); err != nil {
-			helpers.AppLogger.Warningf("%s: Error while opening volume %s - %v", prefix, vol.ObjectName, err)
+			helpers.AppLogger.Debugf("%s: Error while opening volume %s - %v", prefix, vol.ObjectName, err)
 			return err
 		}
 		defer vol.Close()
 
 		err := b.Upload(ctx, vol)
 		if err != nil {
-			helpers.AppLogger.Warningf("%s: Error while uploading volume %s - %v", prefix, vol.ObjectName, err)
+			helpers.AppLogger.Debugf("%s: Error while uploading volume %s - %v", prefix, vol.ObjectName, err)
 		}
 		return err
 	}

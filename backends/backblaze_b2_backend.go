@@ -111,6 +111,7 @@ func (b *B2Backend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
 
 	w.ConcurrentUploads = b.conf.MaxParallelUploads
 	w.ChunkSize = b.conf.UploadChunkSize
+	w.Resume = true
 
 	if _, err := io.Copy(w, vol); err != nil {
 		w.Close()
