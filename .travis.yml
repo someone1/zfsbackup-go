@@ -7,6 +7,7 @@ services:
 
 go:
   - 1.9.x
+  - 1.10.x
   - tip
 
 addons:
@@ -25,11 +26,12 @@ env:
   - AZURE_CUSTOM_ENDPOINT=127.0.0.1:10000 AWS_S3_CUSTOM_ENDPOINT=http://127.0.0.1:9000 AWS_REGION=us-east-1
 
 install:
-  - $HOME/gopath/bin/gometalinter --install
+  - $GOPATH/bin/gometalinter --install
   - make get
 
 script:
-  - sudo -E $HOME/gopath/bin/goveralls -service=travis-ci
+  - sudo -E go test -v -covermode=count -coverprofile=coverage.out ./...
+  - $GOPATH/bin/goveralls -coverprofile=coverage.out -service=travis-ci
   - make fmt vet build
 
 after_script: source ./travis-teardown.sh
