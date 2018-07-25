@@ -29,6 +29,7 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -50,6 +51,7 @@ type AzureBackend struct {
 	mutex         sync.Mutex
 	accountName   string
 	accountKey    string
+	containersas  string
 	azureURL      string
 	prefix        string
 	containerName string
@@ -68,6 +70,15 @@ func (c *contextSender) Send(client *storage.Client, req *http.Request) (*http.R
 
 // We need to create a new client for every API interaction as the Azure SDK doesn't support contexts!
 func (a *AzureBackend) getContainerClient(ctx context.Context) (*storage.Container, error) {
+	if a.containersas != "" {
+		parsedsas, err := url.Parse(a.containersas)
+		if err != nil {
+			return nil, err
+		}
+
+		return storage.GetContainerReferenceFromSASURI(parsedsas)
+	}
+
 	client, err := storage.NewClient(a.accountName, a.accountKey, a.azureURL, storage.DefaultAPIVersion, a.accountName != storage.StorageEmulatorAccountName)
 	if err != nil {
 		return nil, err
@@ -91,6 +102,7 @@ func (a *AzureBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Op
 
 	a.accountName = os.Getenv("AZURE_ACCOUNT_NAME")
 	a.accountKey = os.Getenv("AZURE_ACCOUNT_KEY")
+	a.containersas = os.Getenv("AZURE_SAS_URI")
 	a.azureURL = os.Getenv("AZURE_CUSTOM_ENDPOINT")
 	if a.azureURL == "" {
 		a.azureURL = storage.DefaultBaseURL

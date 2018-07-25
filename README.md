@@ -30,7 +30,7 @@ This project was inspired by the [duplicity project](http://duplicity.nongnu.org
 - Any S3 Compatible Storage Provider (e.g. Minio, StorageMadeEasy, Ceph, etc.)
   - Set the AWS_S3_CUSTOM_ENDPOINT environmental variable to the compatible target API URI
 - Azure Blob Storage (azure://)
-  - Auth: Set the AZURE_ACCOUNT_NAME and AZURE_ACCOUNT_KEY environmental variables to the appropiate values
+  - Auth: Set the AZURE_ACCOUNT_NAME and AZURE_ACCOUNT_KEY environmental variables to the appropiate values or if using SAS set AZURE_SAS_URI to a container authorized SAS URI
   - Point to a custom endpoint by setting the AZURE_CUSTOM_ENDPOINT envrionmental variable
   - Although no durability target is provided, there is an in-depth explanation of their architecture [here](http://sigops.org/sosp/sosp11/current/2011-Cascais/printable/11-calder.pdf) - Using the Reed-Solomon erasure encoding and user-configurable redundancy settings
 - BackBlaze B2 (b2://)
