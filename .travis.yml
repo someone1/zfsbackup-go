@@ -30,7 +30,7 @@ install:
   - make get
 
 script:
-  - sudo -E go test -v -covermode=count -coverprofile=coverage.out ./...
+  - sudo -E env "PATH=$PATH" go test -v -covermode=count -coverprofile=coverage.out ./...
   - $GOPATH/bin/goveralls -coverprofile=coverage.out -service=travis-ci
   - make fmt vet build
 
