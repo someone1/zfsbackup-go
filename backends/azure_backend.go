@@ -76,7 +76,7 @@ func (a *AzureBackend) getContainerClient(ctx context.Context) (*storage.Contain
 			return nil, err
 		}
 
-		return storage.GetContainerReferenceFromSASURI(parsedsas)
+		return storage.GetContainerReferenceFromSASURI(*parsedsas)
 	}
 
 	client, err := storage.NewClient(a.accountName, a.accountKey, a.azureURL, storage.DefaultAPIVersion, a.accountName != storage.StorageEmulatorAccountName)

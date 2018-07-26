@@ -30,7 +30,8 @@ install:
   - make get
 
 script:
-  - sudo -E $GOPATH/bin/goveralls -service=travis-ci
+  - sudo -E env "PATH=$PATH" go test -v -covermode=count -coverprofile=coverage.out ./...
+  - $GOPATH/bin/goveralls -coverprofile=coverage.out -service=travis-ci
   - make fmt vet build
 
 after_script: source ./travis-teardown.sh
