@@ -25,6 +25,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/url"
@@ -190,15 +191,13 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 		return err
 	}
 
-	// https://github.com/Azure/azure-storage-blob-go/issues/57
-	// md5Raw, merr := hex.DecodeString(vol.MD5Sum)
-	// if merr != nil {
-	// 	return merr
-	// }
-	//blob.Properties.ContentMD5 = base64.StdEncoding.EncodeToString(md5Raw)
+	md5Raw, merr := hex.DecodeString(vol.MD5Sum)
+	if merr != nil {
+		return merr
+	}
 
 	// Finally, finalize the storage blob by giving Azure the block list order
-	_, err = blobURL.CommitBlockList(ctx, blockIDs, azblob.BlobHTTPHeaders{}, azblob.Metadata{}, azblob.BlobAccessConditions{})
+	_, err = blobURL.CommitBlockList(ctx, blockIDs, azblob.BlobHTTPHeaders{ContentMD5: md5Raw}, azblob.Metadata{}, azblob.BlobAccessConditions{})
 	if err != nil {
 		helpers.AppLogger.Debugf("azure backend: Error while finalizing volume %s - %v", vol.ObjectName, err)
 	}
