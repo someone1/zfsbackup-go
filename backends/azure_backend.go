@@ -23,18 +23,17 @@ package backends
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/hex"
+	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"sync"
 
-	"github.com/Azure/azure-sdk-for-go/storage"
+	"github.com/Azure/azure-storage-blob-go/2018-03-28/azblob"
+	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/someone1/zfsbackup-go/helpers"
@@ -43,7 +42,10 @@ import (
 // Keep an eye on the Azure Go SDK, apparently there's a rewrite in progress: https://github.com/Azure/azure-sdk-for-go/issues/626#issuecomment-324398278
 
 // AzureBackendPrefix is the URI prefix used for the AzureBackend.
-const AzureBackendPrefix = "azure"
+const (
+	AzureBackendPrefix = "azure"
+	blobAPIURL         = "blob.core.windows.net"
+)
 
 // AzureBackend integrates with Microsoft's Azure Storage Services.
 type AzureBackend struct {
@@ -55,40 +57,7 @@ type AzureBackend struct {
 	azureURL      string
 	prefix        string
 	containerName string
-}
-
-type contextSender struct {
-	ctx context.Context
-	s   storage.Sender
-}
-
-// Send will ensure the request given is tied to the context we want it to be tied to.
-func (c *contextSender) Send(client *storage.Client, req *http.Request) (*http.Response, error) {
-	r := req.WithContext(c.ctx)
-	return c.s.Send(client, r)
-}
-
-// We need to create a new client for every API interaction as the Azure SDK doesn't support contexts!
-func (a *AzureBackend) getContainerClient(ctx context.Context) (*storage.Container, error) {
-	if a.containersas != "" {
-		parsedsas, err := url.Parse(a.containersas)
-		if err != nil {
-			return nil, err
-		}
-
-		return storage.GetContainerReferenceFromSASURI(*parsedsas)
-	}
-
-	client, err := storage.NewClient(a.accountName, a.accountKey, a.azureURL, storage.DefaultAPIVersion, a.accountName != storage.StorageEmulatorAccountName)
-	if err != nil {
-		return nil, err
-	}
-	client.Sender = &contextSender{
-		ctx: ctx,
-		s:   client.Sender,
-	}
-	blobCli := client.GetBlobService()
-	return blobCli.GetContainerReference(a.containerName), nil
+	containerSvc  azblob.ContainerURL
 }
 
 // Init will initialize the AzureBackend and verify the provided URI is valid/exists.
@@ -105,7 +74,7 @@ func (a *AzureBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Op
 	a.containersas = os.Getenv("AZURE_SAS_URI")
 	a.azureURL = os.Getenv("AZURE_CUSTOM_ENDPOINT")
 	if a.azureURL == "" {
-		a.azureURL = storage.DefaultBaseURL
+		a.azureURL = fmt.Sprintf("https://%s.%s", a.accountName, blobAPIURL)
 	}
 
 	uriParts := strings.Split(cleanPrefix, "/")
@@ -119,12 +88,29 @@ func (a *AzureBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Op
 		opt.Apply(a)
 	}
 
-	container, err := a.getContainerClient(ctx)
-	if err != nil {
-		return err
+	if a.containersas != "" {
+		parsedsas, err := url.Parse(a.containersas)
+		if err != nil {
+			return errors.Wrap(err, "failed to parse SAS URI")
+		}
+		pipeline := azblob.NewPipeline(azblob.NewAnonymousCredential(), azblob.PipelineOptions{})
+		sasParts := azblob.NewBlobURLParts(*parsedsas)
+		if sasParts.ContainerName != a.containerName {
+			return errors.New("container name in SAS URI is different than destination container provided")
+		}
+		a.containerSvc = azblob.NewContainerURL(*parsedsas, pipeline)
+	} else {
+		credential := azblob.NewSharedKeyCredential(a.accountName, a.accountKey)
+		destURL, err := url.Parse(a.azureURL)
+		if err != nil {
+			return errors.Wrap(err, "failed to construct Azure API URL")
+		}
+		pipeline := azblob.NewPipeline(credential, azblob.PipelineOptions{})
+		svcURL := azblob.NewServiceURL(*destURL, pipeline)
+		a.containerSvc = svcURL.NewContainerURL(a.containerName)
 	}
 
-	_, err = container.ListBlobs(storage.ListBlobsParameters{MaxResults: 0})
+	_, err := a.containerSvc.ListBlobsFlatSegment(ctx, azblob.Marker{}, azblob.ListBlobsSegmentOptions{MaxResults: 0})
 	return err
 }
 
@@ -135,39 +121,35 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 	a.mutex.Lock()
 	defer a.mutex.Unlock()
 
-	container, err := a.getContainerClient(ctx)
-	if err != nil {
-		return err
-	}
 	name := a.prefix + vol.ObjectName
-	blob := container.GetBlobReference(name)
+	blobURL := a.containerSvc.NewBlockBlobURL(name)
 
 	// We will PutBlock for chunks of UploadChunkSize and then finalize the block with a PutBlockList call
-	// Would use append, but append calls from the SDK don't support MD5 headers? https://github.com/Azure/azure-sdk-for-go/issues/757
+	// Staging blocks does not allow MD5 checksums: https://github.com/Azure/azure-storage-blob-go/issues/56
 
-	// First initialize an empty block blob
-	err = blob.CreateBlockBlob(nil)
-	if err != nil {
-		return err
+	// https://godoc.org/github.com/Azure/azure-storage-blob-go/2018-03-28/azblob#NewBlockBlobURL
+	// These helper functions convert a binary block ID to a base-64 string and vice versa
+	// NOTE: The blockID must be <= 64 bytes and ALL blockIDs for the block must be the same length
+	blockIDBinaryToBase64 := func(blockID []byte) string { return base64.StdEncoding.EncodeToString(blockID) }
+	// These helper functions convert an int block ID to a base-64 string and vice versa
+	blockIDIntToBase64 := func(blockID int) string {
+		binaryBlockID := (&[4]byte{})[:] // All block IDs are 4 bytes long
+		binary.LittleEndian.PutUint32(binaryBlockID, uint32(blockID))
+		return blockIDBinaryToBase64(binaryBlockID)
 	}
 
 	var (
-		blocks    []storage.Block
+		blockIDs  []string
 		errg      errgroup.Group
-		blockid   uint32
+		blockid   int
 		readBytes uint64
 	)
-	bs := make([]byte, 4)
 
 	// Currently, we can only have a max of 50000 blocks, 100MiB each, but we don't expect chunks that large
 	// Upload the object in chunks
 	for {
-		binary.LittleEndian.PutUint32(bs, blockid)
-		block := storage.Block{
-			ID:     base64.StdEncoding.EncodeToString(bs),
-			Status: storage.BlockStatusLatest,
-		}
-		blocks = append(blocks, block)
+		blockID := blockIDIntToBase64(blockid)
+		blockIDs = append(blockIDs, blockID)
 		blockid++
 
 		blockSize := uint64(a.conf.UploadChunkSize)
@@ -183,7 +165,7 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 
 		readBytes += uint64(n)
 		if n > 0 {
-			md5sum := md5.Sum(buf[:n])
+			//md5sum := md5.Sum(buf[:n])
 
 			select {
 			case <-ctx.Done():
@@ -191,9 +173,8 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 			case a.conf.MaxParallelUploadBuffer <- true:
 				errg.Go(func() error {
 					defer func() { <-a.conf.MaxParallelUploadBuffer }()
-					return blob.PutBlockWithLength(block.ID, uint64(n), bytes.NewBuffer(buf[:n]), &storage.PutBlockOptions{
-						ContentMD5: base64.StdEncoding.EncodeToString(md5sum[:]),
-					})
+					_, err := blobURL.StageBlock(ctx, blockID, bytes.NewReader(buf[:n]), azblob.LeaseAccessConditions{})
+					return err
 				})
 			}
 		}
@@ -203,20 +184,21 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 		}
 	}
 
-	err = errg.Wait()
+	err := errg.Wait()
 	if err != nil {
 		helpers.AppLogger.Debugf("azure backend: Error while uploading volume %s - %v", vol.ObjectName, err)
 		return err
 	}
 
-	md5Raw, merr := hex.DecodeString(vol.MD5Sum)
-	if merr != nil {
-		return merr
-	}
-	blob.Properties.ContentMD5 = base64.StdEncoding.EncodeToString(md5Raw)
+	// https://github.com/Azure/azure-storage-blob-go/issues/57
+	// md5Raw, merr := hex.DecodeString(vol.MD5Sum)
+	// if merr != nil {
+	// 	return merr
+	// }
+	//blob.Properties.ContentMD5 = base64.StdEncoding.EncodeToString(md5Raw)
 
 	// Finally, finalize the storage blob by giving Azure the block list order
-	err = blob.PutBlockList(blocks, nil)
+	_, err = blobURL.CommitBlockList(ctx, blockIDs, azblob.BlobHTTPHeaders{}, azblob.Metadata{}, azblob.BlobAccessConditions{})
 	if err != nil {
 		helpers.AppLogger.Debugf("azure backend: Error while finalizing volume %s - %v", vol.ObjectName, err)
 	}
@@ -225,12 +207,9 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 
 // Delete will delete the given object from the configured container
 func (a *AzureBackend) Delete(ctx context.Context, name string) error {
-	container, err := a.getContainerClient(ctx)
-	if err != nil {
-		return err
-	}
-	blob := container.GetBlobReference(name)
-	return blob.Delete(nil)
+	blobURL := a.containerSvc.NewBlobURL(name)
+	_, err := blobURL.Delete(ctx, azblob.DeleteSnapshotsOptionNone, azblob.BlobAccessConditions{})
+	return err
 }
 
 // PreDownload will do nothing for this backend.
@@ -240,12 +219,12 @@ func (a *AzureBackend) PreDownload(ctx context.Context, keys []string) error {
 
 // Download will download the requseted object which can be read from the returned io.ReadCloser
 func (a *AzureBackend) Download(ctx context.Context, name string) (io.ReadCloser, error) {
-	container, err := a.getContainerClient(ctx)
+	blobURL := a.containerSvc.NewBlobURL(name)
+	resp, err := blobURL.Download(ctx, 0, 0, azblob.BlobAccessConditions{}, false)
 	if err != nil {
 		return nil, err
 	}
-	blob := container.GetBlobReference(name)
-	return blob.Get(nil)
+	return resp.Body(azblob.RetryReaderOptions{}), nil
 }
 
 // Close will release any resources used by the Azure backend.
@@ -256,39 +235,22 @@ func (a *AzureBackend) Close() error {
 // List will iterate through all objects in the configured Azure Storage Container and return
 // a list of blob names, filtering by the provided prefix.
 func (a *AzureBackend) List(ctx context.Context, prefix string) ([]string, error) {
-	container, err := a.getContainerClient(ctx)
-	if err != nil {
-		return nil, err
-	}
+	l := make([]string, 0, 5000)
 
-	resp, err := container.ListBlobs(storage.ListBlobsParameters{
-		MaxResults: 5000,
-		Prefix:     prefix,
-	})
+	for marker := (azblob.Marker{}); marker.NotDone(); {
+		resp, err := a.containerSvc.ListBlobsFlatSegment(ctx, marker, azblob.ListBlobsSegmentOptions{
+			Prefix:     prefix,
+			MaxResults: 5000,
+		})
+		if err != nil {
+			return nil, errors.Wrap(err, "error while listing blobs from container")
+		}
 
-	if err != nil {
-		return nil, err
-	}
-
-	l := make([]string, 0, len(resp.Blobs))
-	for {
-		for _, obj := range resp.Blobs {
+		for _, obj := range resp.Segment.BlobItems {
 			l = append(l, obj.Name)
 		}
 
-		if resp.NextMarker == "" {
-			break
-		}
-
-		resp, err = container.ListBlobs(storage.ListBlobsParameters{
-			MaxResults: 5000,
-			Prefix:     prefix,
-			Marker:     resp.NextMarker,
-		})
-
-		if err != nil {
-			return nil, err
-		}
+		marker = resp.NextMarker
 	}
 
 	return l, nil
