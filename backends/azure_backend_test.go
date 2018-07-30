@@ -24,11 +24,13 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net/url"
 	"os"
 	"reflect"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/storage"
+	"github.com/Azure/azure-storage-blob-go/2018-03-28/azblob"
 )
 
 func TestAzureGetBackendForURI(t *testing.T) {
@@ -62,16 +64,20 @@ func TestAzureBackend(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	client, cerr := storage.NewClient(storage.StorageEmulatorAccountName, storage.StorageEmulatorAccountKey, os.Getenv("AZURE_CUSTOM_ENDPOINT"), storage.DefaultAPIVersion, false)
-	if cerr != nil {
-		t.Fatalf("Error while trying to get create Azure Client: %v", cerr)
+
+	credential := azblob.NewSharedKeyCredential(storage.StorageEmulatorAccountName, storage.StorageEmulatorAccountKey)
+	destURL, err := url.Parse(os.Getenv("AZURE_CUSTOM_ENDPOINT"))
+	if err != nil {
+		t.Fatalf("failed to construct Azure API URL: %v", err)
 	}
-	blobCli := client.GetBlobService()
-	_, oerr := blobCli.GetContainerReference(azureTestBucketName).CreateIfNotExists(nil)
-	if oerr != nil {
-		t.Fatalf("Error while trying to get create Azure Client: %v", oerr)
+	pipeline := azblob.NewPipeline(credential, azblob.PipelineOptions{})
+	svcURL := azblob.NewServiceURL(*destURL, pipeline)
+	containerSvc := svcURL.NewContainerURL(azureTestBucketName)
+	if _, err = containerSvc.Create(ctx, azblob.Metadata{}, azblob.PublicAccessNone); err != nil {
+		t.Fatalf("error while creating bucket: %v", err)
 	}
-	defer blobCli.GetContainerReference(azureTestBucketName).DeleteIfExists(nil)
+
+	defer containerSvc.Delete(ctx, azblob.ContainerAccessConditions{})
 
 	testPayLoad, goodVol, badVol, perr := prepareTestVols()
 	if perr != nil {

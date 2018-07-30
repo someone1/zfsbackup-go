@@ -22,7 +22,7 @@ before_install:
   - source ./travis-setup.sh
 
 env:
-  - AZURE_CUSTOM_ENDPOINT=http://127.0.0.1:10000 AWS_S3_CUSTOM_ENDPOINT=http://127.0.0.1:9000 AWS_REGION=us-east-1
+  - AZURE_CUSTOM_ENDPOINT=http://127.0.0.1:10000/devstoreaccount1 AWS_S3_CUSTOM_ENDPOINT=http://127.0.0.1:9000 AWS_REGION=us-east-1
 
 install:
   - $GOPATH/bin/gometalinter --install
