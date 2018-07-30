@@ -93,12 +93,18 @@ func (a *AzureBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Op
 		opt.Apply(a)
 	}
 
+	// No need for this logging
+	pipelineOpts := azblob.PipelineOptions{
+		RequestLog: azblob.RequestLogOptions{
+			LogWarningIfTryOverThreshold: -1,
+		},
+	}
 	if a.containersas != "" {
 		parsedsas, err := url.Parse(a.containersas)
 		if err != nil {
 			return errors.Wrap(err, "failed to parse SAS URI")
 		}
-		pipeline := azblob.NewPipeline(azblob.NewAnonymousCredential(), azblob.PipelineOptions{})
+		pipeline := azblob.NewPipeline(azblob.NewAnonymousCredential(), pipelineOpts)
 		sasParts := azblob.NewBlobURLParts(*parsedsas)
 		if sasParts.ContainerName != a.containerName {
 			return errContainerMismatch
@@ -110,7 +116,7 @@ func (a *AzureBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Op
 		if err != nil {
 			return errors.Wrap(err, "failed to construct Azure API URL")
 		}
-		pipeline := azblob.NewPipeline(credential, azblob.PipelineOptions{})
+		pipeline := azblob.NewPipeline(credential, pipelineOpts)
 		svcURL := azblob.NewServiceURL(*destURL, pipeline)
 		a.containerSvc = svcURL.NewContainerURL(a.containerName)
 	}
