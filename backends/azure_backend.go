@@ -48,6 +48,10 @@ const (
 	blobAPIURL         = "blob.core.windows.net"
 )
 
+var (
+	errContainerMismatch = errors.New("container name in SAS URI is different than destination container provided")
+)
+
 // AzureBackend integrates with Microsoft's Azure Storage Services.
 type AzureBackend struct {
 	conf          *BackendConfig
@@ -97,7 +101,7 @@ func (a *AzureBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Op
 		pipeline := azblob.NewPipeline(azblob.NewAnonymousCredential(), azblob.PipelineOptions{})
 		sasParts := azblob.NewBlobURLParts(*parsedsas)
 		if sasParts.ContainerName != a.containerName {
-			return errors.New("container name in SAS URI is different than destination container provided")
+			return errContainerMismatch
 		}
 		a.containerSvc = azblob.NewContainerURL(*parsedsas, pipeline)
 	} else {

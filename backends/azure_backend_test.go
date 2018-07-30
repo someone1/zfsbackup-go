@@ -43,7 +43,10 @@ func TestAzureGetBackendForURI(t *testing.T) {
 	}
 }
 
-const azureTestBucketName = "azuretestbucket"
+const (
+	azureTestBucketName = "azuretestbucket"
+	testSASURI          = "https://storageaccount.blob.core.windows.net/azuretestbucket"
+)
 
 func TestAzureBackend(t *testing.T) {
 	if os.Getenv("AZURE_CUSTOM_ENDPOINT") == "" {
@@ -203,6 +206,54 @@ func TestAzureBackend(t *testing.T) {
 		err := b.Close()
 		if err != nil {
 			t.Fatalf("Issue closing AzureBackend: %v", err)
+		}
+	})
+
+	t.Run("SASURI", func(t *testing.T) {
+		// We can't test SAS URI's against azurite since it's not yet supported, but we can at least test
+		// that it parses it out correctly...
+		// https://github.com/Azure/Azurite/issues/8
+
+		var err error
+		if err = os.Setenv("AZURE_SAS_URI", testSASURI); err != nil {
+			t.Fatalf("could not set environmental variable due to error: %v", err)
+		}
+
+		// Different Container name
+		conf := &BackendConfig{
+			TargetURI:               AzureBackendPrefix + "://" + azureTestBucketName + "bad",
+			UploadChunkSize:         8 * 1024 * 1024,
+			MaxParallelUploads:      5,
+			MaxParallelUploadBuffer: make(chan bool, 5),
+		}
+		err = b.Init(ctx, conf)
+		if err != errContainerMismatch {
+			t.Errorf("Expected container mismatch error initilazing AzureBackend w/ SAS URI, got %v", err)
+		}
+
+		// Should recieve a ResourceNotFound error if we actually try a valid init
+		conf = &BackendConfig{
+			TargetURI:               AzureBackendPrefix + "://" + azureTestBucketName,
+			UploadChunkSize:         8 * 1024 * 1024,
+			MaxParallelUploads:      5,
+			MaxParallelUploadBuffer: make(chan bool, 5),
+		}
+		err = b.Init(ctx, conf)
+		if err != nil {
+			if serr, ok := err.(azblob.StorageError); ok {
+				if serr.ServiceCode() != azblob.ServiceCodeResourceNotFound {
+					t.Errorf("Expected `ResourceNotFound` error but got `%v` instead", serr.ServiceCode())
+				}
+			} else {
+				t.Errorf("Expected a azblob.StorageError but got something else: %v", err)
+			}
+		} else {
+			t.Fatalf("Expected non-nil error initilazing AzureBackend w/ SAS URI")
+		}
+
+		// Get rid of the env variable
+		if err = os.Unsetenv("AZURE_SAS_URI"); err != nil {
+			t.Fatalf("could not unset environmental variable due to error: %v", err)
 		}
 	})
 }
