@@ -22,8 +22,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -31,6 +33,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/storage"
+	"github.com/Azure/azure-storage-blob-go/2018-03-28/azblob"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -60,16 +63,21 @@ func setupAzureBucket(t *testing.T) func() {
 		t.Fatalf("could not set environmental variable due to error: %v", err)
 	}
 
-	client, cerr := storage.NewClient(storage.StorageEmulatorAccountName, storage.StorageEmulatorAccountKey, os.Getenv("AZURE_CUSTOM_ENDPOINT"), storage.DefaultAPIVersion, false)
-	if cerr != nil {
-		t.Fatalf("Error while trying to get create Azure Client: %v", cerr)
+	ctx := context.Background()
+
+	credential := azblob.NewSharedKeyCredential(storage.StorageEmulatorAccountName, storage.StorageEmulatorAccountKey)
+	destURL, err := url.Parse(os.Getenv("AZURE_CUSTOM_ENDPOINT"))
+	if err != nil {
+		t.Fatalf("failed to construct Azure API URL: %v", err)
 	}
-	blobCli := client.GetBlobService()
-	_, oerr := blobCli.GetContainerReference(azureTestBucketName).CreateIfNotExists(nil)
-	if oerr != nil {
-		t.Fatalf("Error while trying to get create Azure Client: %v", oerr)
+	pipeline := azblob.NewPipeline(credential, azblob.PipelineOptions{})
+	svcURL := azblob.NewServiceURL(*destURL, pipeline)
+	containerSvc := svcURL.NewContainerURL(azureTestBucketName)
+	if _, err = containerSvc.Create(ctx, azblob.Metadata{}, azblob.PublicAccessNone); err != nil {
+		t.Fatalf("error while creating bucket: %v", err)
 	}
-	return func() { blobCli.GetContainerReference(azureTestBucketName).DeleteIfExists(nil) }
+
+	return func() { containerSvc.Delete(ctx, azblob.ContainerAccessConditions{}) }
 }
 
 func setupS3Bucket(t *testing.T) func() {
