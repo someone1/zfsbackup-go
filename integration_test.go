@@ -65,7 +65,10 @@ func setupAzureBucket(t *testing.T) func() {
 
 	ctx := context.Background()
 
-	credential := azblob.NewSharedKeyCredential(storage.StorageEmulatorAccountName, storage.StorageEmulatorAccountKey)
+	credential, err := azblob.NewSharedKeyCredential(storage.StorageEmulatorAccountName, storage.StorageEmulatorAccountKey)
+	if err != nil {
+		t.Fatalf("failed to parse SAS key: %v", err)
+	}
 	destURL, err := url.Parse(os.Getenv("AZURE_CUSTOM_ENDPOINT"))
 	if err != nil {
 		t.Fatalf("failed to construct Azure API URL: %v", err)
