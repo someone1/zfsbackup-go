@@ -12,7 +12,6 @@ services:
 go:
   - 1.11.x
 
-
 env:
   - spl=true rel=0.7.13 AZURE_CUSTOM_ENDPOINT=http://127.0.0.1:10000/devstoreaccount1 AWS_S3_CUSTOM_ENDPOINT=http://127.0.0.1:9000 AWS_REGION=us-east-1
   - spl=false rel=0.8.3 AZURE_CUSTOM_ENDPOINT=http://127.0.0.1:10000/devstoreaccount1 AWS_S3_CUSTOM_ENDPOINT=http://127.0.0.1:9000 AWS_REGION=us-east-1
