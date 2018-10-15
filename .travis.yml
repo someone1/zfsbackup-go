@@ -6,13 +6,13 @@ services:
   - docker
 
 go:
-  - 1.10.x
+  - 1.11.x
   - tip
 
 addons:
   apt:
     sources:
-      - sourceline: 'ppa:zfs-native/stable'
+      - sourceline: "ppa:zfs-native/stable"
 
 before_install:
   - sudo apt-get -qq update
@@ -29,7 +29,10 @@ install:
   - make get
 
 script:
-  - sudo -E $GOPATH/bin/goveralls -service=travis-ci
+  - go test -coverprofile=coverage.out -covermode=count -coverpkg=$(shell go list ./... | grep -v '/vendor/' | paste -sd, -) ./...
   - make fmt vet build
+
+after_success:
+  - sudo -E $GOPATH/bin/goveralls -coverprofile=coverage.out -service=travis-ci
 
 after_script: source ./travis-teardown.sh
