@@ -156,6 +156,7 @@ func TestIntegration(t *testing.T) {
 	// Azurite doesn't seem to like '|' so making seperator '-'
 	// Backup Tests
 	t.Run("Backup", func(t *testing.T) {
+		// Manual Full Backup
 		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "tank/data@a", bucket})
 		if err := cmd.RootCmd.Execute(); err != nil {
 			t.Fatalf("error performing backup: %v", err)
@@ -163,13 +164,33 @@ func TestIntegration(t *testing.T) {
 
 		cmd.ResetSendJobInfo()
 
-		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "-i", "tank/data@a", "tank/data@b", bucket})
+		// Bookmark setup
+		if err := exec.Command("zfs", "bookmark", "tank/data@a", "tank/data#a").Run(); err != nil {
+			t.Fatalf("unexpected error creating bookmark tank/data#a: %v", err)
+		}
+
+		if err := exec.Command("zfs", "destroy", "tank/data@a").Run(); err != nil {
+			t.Fatalf("unexpected error destroying snapshot tank/data@a: %v", err)
+		}
+
+		// Manual Incremental Backup from bookmark
+		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "-i", "tank/data#a", "tank/data@b", bucket})
 		if err := cmd.RootCmd.Execute(); err != nil {
 			t.Fatalf("error performing backup: %v", err)
 		}
 
 		cmd.ResetSendJobInfo()
 
+		// Another Bookmark setup
+		if err := exec.Command("zfs", "bookmark", "tank/data@b", "tank/data#b").Run(); err != nil {
+			t.Fatalf("unexpected error creating bookmark tank/data#b: %v", err)
+		}
+
+		if err := exec.Command("zfs", "destroy", "tank/data@b").Run(); err != nil {
+			t.Fatalf("unexpected error destroying snapshot tank/data@b: %v", err)
+		}
+
+		// "Smart" incremental Backup
 		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "--compressor", "xz", "--compressionLevel", "2", "--increment", "tank/data", bucket})
 		if err := cmd.RootCmd.Execute(); err != nil {
 			t.Fatalf("error performing backup: %v", err)
@@ -177,6 +198,7 @@ func TestIntegration(t *testing.T) {
 
 		cmd.ResetSendJobInfo()
 
+		// Smart Incremental Backup - Nothing to do
 		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "--increment", "tank/data", bucket})
 		if err := cmd.RootCmd.Execute(); err != backup.ErrNoOp {
 			t.Fatalf("expecting error %v, but got %v instead", backup.ErrNoOp, err)

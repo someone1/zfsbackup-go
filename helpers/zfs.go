@@ -49,10 +49,10 @@ func GetCreationDate(ctx context.Context, target string) (time.Time, error) {
 	return time.Unix(epochTime, 0), nil
 }
 
-// GetSnapshots will retrieve all snapshots for the given target
-func GetSnapshots(ctx context.Context, target string) ([]SnapshotInfo, error) {
+// GetSnapshotsAndBookmarks will retrieve all snapshots and bookmarks for the given target
+func GetSnapshotsAndBookmarks(ctx context.Context, target string) ([]SnapshotInfo, error) {
 	errB := new(bytes.Buffer)
-	cmd := exec.CommandContext(ctx, ZFSPath, "list", "-H", "-d", "1", "-p", "-t", "snapshot", "-r", "-o", "name,creation", "-S", "creation", target)
+	cmd := exec.CommandContext(ctx, ZFSPath, "list", "-H", "-d", "1", "-p", "-t", "snapshot,bookmark", "-r", "-o", "name,creation,type", "-S", "creation", target)
 	AppLogger.Debugf("Getting ZFS Snapshots with command \"%s\"", strings.Join(cmd.Args, " "))
 	cmd.Stderr = errB
 	rpipe, err := cmd.StdoutPipe()
@@ -67,12 +67,18 @@ func GetSnapshots(ctx context.Context, target string) ([]SnapshotInfo, error) {
 	for {
 		snapInfo := SnapshotInfo{}
 		var creation int64
-		n, nerr := fmt.Fscanln(rpipe, &snapInfo.Name, &creation)
+		var objectType string
+		n, nerr := fmt.Fscanln(rpipe, &snapInfo.Name, &creation, &objectType)
 		if n == 0 || nerr != nil {
 			break
 		}
 		snapInfo.CreationTime = time.Unix(creation, 0)
-		snapInfo.Name = snapInfo.Name[strings.Index(snapInfo.Name, "@")+1:]
+		if objectType == "bookmark" {
+			snapInfo.Name = snapInfo.Name[strings.Index(snapInfo.Name, "#")+1:]
+			snapInfo.Bookmark = true
+		} else {
+			snapInfo.Name = snapInfo.Name[strings.Index(snapInfo.Name, "@")+1:]
+		}
 		snapshots = append(snapshots, snapInfo)
 	}
 	err = cmd.Wait()
@@ -125,14 +131,19 @@ func GetZFSSendCommand(ctx context.Context, j *JobInfo) *exec.Cmd {
 		zfsArgs = append(zfsArgs, "-c")
 	}
 
-	if j.IntermediaryIncremental && j.IncrementalSnapshot.Name != "" {
-		AppLogger.Infof("Enabling an incremental stream with all intermediary snapshots (-I) on the send to snapshot %s", j.IncrementalSnapshot.Name)
-		zfsArgs = append(zfsArgs, "-I", j.IncrementalSnapshot.Name)
-	}
+	if j.IncrementalSnapshot.Name != "" {
+		incrementalName := j.IncrementalSnapshot.Name
+		if j.IncrementalSnapshot.Bookmark {
+			incrementalName = fmt.Sprintf("%s#%s", j.VolumeName, incrementalName)
+		}
 
-	if !j.IntermediaryIncremental && j.IncrementalSnapshot.Name != "" {
-		AppLogger.Infof("Enabling an incremental stream (-i) on the send to snapshot %s", j.IncrementalSnapshot.Name)
-		zfsArgs = append(zfsArgs, "-i", j.IncrementalSnapshot.Name)
+		if j.IntermediaryIncremental {
+			AppLogger.Infof("Enabling an incremental stream with all intermediary snapshots (-I) on the send to snapshot %s", incrementalName)
+			zfsArgs = append(zfsArgs, "-I", incrementalName)
+		} else {
+			AppLogger.Infof("Enabling an incremental stream (-i) on the send to snapshot %s", incrementalName)
+			zfsArgs = append(zfsArgs, "-i", incrementalName)
+		}
 	}
 
 	zfsArgs = append(zfsArgs, fmt.Sprintf("%s@%s", j.VolumeName, j.BaseSnapshot.Name))

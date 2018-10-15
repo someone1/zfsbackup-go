@@ -120,14 +120,14 @@ func AutoRestore(pctx context.Context, jobInfo *helpers.JobInfo) error {
 		volume = fmt.Sprintf("%s/%s", volume, parts[len(parts)-1])
 	}
 
-	snapshots, err := helpers.GetSnapshots(ctx, volume)
+	snapshots, err := helpers.GetSnapshotsAndBookmarks(ctx, volume)
 	if err != nil {
 		// TODO: There are some error cases that are ok to ignore!
 		snapshots = []helpers.SnapshotInfo{}
 	}
 
 	if jobInfo.Origin != "" {
-		originSnapshot, oerr := helpers.GetSnapshots(ctx, jobInfo.Origin)
+		originSnapshot, oerr := helpers.GetSnapshotsAndBookmarks(ctx, jobInfo.Origin)
 		if oerr != nil {
 			helpers.AppLogger.Errorf("Could not get origin snapshot %s info due to error: %v", jobInfo.Origin, oerr)
 			return oerr
@@ -144,7 +144,7 @@ func AutoRestore(pctx context.Context, jobInfo *helpers.JobInfo) error {
 
 	for {
 		// See if the snapshots we want to restore already exist
-		if ok := validateSnapShotExistsFromSnaps(&jobToRestore.BaseSnapshot, snapshots); ok {
+		if ok := validateSnapShotExistsFromSnaps(&jobToRestore.BaseSnapshot, snapshots, false); ok {
 			break
 		}
 
@@ -217,7 +217,7 @@ func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
 	}
 
 	if jobInfo.BaseSnapshot.CreationTime.IsZero() {
-		if ok, verr := validateSnapShotExists(ctx, &jobInfo.BaseSnapshot, volume); verr != nil {
+		if ok, verr := validateSnapShotExists(ctx, &jobInfo.BaseSnapshot, volume, false); verr != nil {
 			helpers.AppLogger.Errorf("Cannot validate if selected base snapshot exists due to error - %v", verr)
 			return verr
 		} else if ok {
@@ -228,7 +228,7 @@ func Receive(pctx context.Context, jobInfo *helpers.JobInfo) error {
 
 	// Check that we have the parent snap shot this wants to restore from
 	if jobInfo.IncrementalSnapshot.Name != "" && jobInfo.IncrementalSnapshot.CreationTime.IsZero() {
-		if ok, verr := validateSnapShotExists(ctx, &jobInfo.IncrementalSnapshot, volume); verr != nil {
+		if ok, verr := validateSnapShotExists(ctx, &jobInfo.IncrementalSnapshot, volume, false); verr != nil {
 			helpers.AppLogger.Errorf("Cannot validate if selected incremental snapshot exists due to error - %v", verr)
 			return verr
 		} else if !ok {

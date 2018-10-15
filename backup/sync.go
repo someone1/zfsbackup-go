@@ -125,18 +125,23 @@ func syncCache(ctx context.Context, j *helpers.JobInfo, localCache string, backe
 	return safeManifests, localOnlyFiles, nil
 }
 
-func validateSnapShotExists(ctx context.Context, snapshot *helpers.SnapshotInfo, target string) (bool, error) {
-	snapshots, err := helpers.GetSnapshots(ctx, target)
+func validateSnapShotExists(ctx context.Context, snapshot *helpers.SnapshotInfo, target string, includeBookmarks bool) (bool, error) {
+	snapshots, err := helpers.GetSnapshotsAndBookmarks(ctx, target)
 	if err != nil {
 		// TODO: There are some error cases that are ok to ignore!
 		return false, nil
 	}
-	return validateSnapShotExistsFromSnaps(snapshot, snapshots), nil
+	return validateSnapShotExistsFromSnaps(snapshot, snapshots, includeBookmarks), nil
 }
 
-func validateSnapShotExistsFromSnaps(snapshot *helpers.SnapshotInfo, snapshots []helpers.SnapshotInfo) bool {
+func validateSnapShotExistsFromSnaps(snapshot *helpers.SnapshotInfo, snapshots []helpers.SnapshotInfo, includeBookmarks bool) bool {
 	for _, snap := range snapshots {
+		if !includeBookmarks && snap.Bookmark {
+			continue
+		}
 		if snap.Equal(snapshot) {
+			// Flag the snapshot as a bookmark if it is one
+			snapshot.Bookmark = snap.Bookmark
 			return true
 		}
 	}

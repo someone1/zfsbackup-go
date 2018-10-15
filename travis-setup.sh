@@ -20,8 +20,8 @@ go get github.com/mitchellh/gox
 # Setup Docker containers
 sudo docker pull arafato/azurite
 sudo docker pull minio/minio
-sudo docker run -d -p 10000:10000 --name azurite --restart=on-failure arafato/azurite
-sudo docker run -d -p 9000:9000 --name minio minio/minio server /data
+sudo docker run -d -p 10000:10000 --rm --name azurite arafato/azurite
+sudo docker run -d -p 9000:9000 --rm --name minio minio/minio server /data
 
 # Setup env variables from Docker containers
 sleep 30
