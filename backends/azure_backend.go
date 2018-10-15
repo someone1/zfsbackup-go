@@ -23,6 +23,7 @@ package backends
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -111,7 +112,10 @@ func (a *AzureBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Op
 		}
 		a.containerSvc = azblob.NewContainerURL(*parsedsas, pipeline)
 	} else {
-		credential := azblob.NewSharedKeyCredential(a.accountName, a.accountKey)
+		credential, err := azblob.NewSharedKeyCredential(a.accountName, a.accountKey)
+		if err != nil {
+			return errors.Wrap(err, "failed to initilze SAS credential")
+		}
 		destURL, err := url.Parse(a.azureURL)
 		if err != nil {
 			return errors.Wrap(err, "failed to construct Azure API URL")
@@ -176,7 +180,7 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 
 		readBytes += uint64(n)
 		if n > 0 {
-			//md5sum := md5.Sum(buf[:n])
+			md5sum := md5.Sum(buf[:n])
 
 			select {
 			case <-ctx.Done():
@@ -184,7 +188,7 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 			case a.conf.MaxParallelUploadBuffer <- true:
 				errg.Go(func() error {
 					defer func() { <-a.conf.MaxParallelUploadBuffer }()
-					_, err := blobURL.StageBlock(ctx, blockID, bytes.NewReader(buf[:n]), azblob.LeaseAccessConditions{})
+					_, err := blobURL.StageBlock(ctx, blockID, bytes.NewReader(buf[:n]), azblob.LeaseAccessConditions{}, md5sum[:])
 					return err
 				})
 			}
