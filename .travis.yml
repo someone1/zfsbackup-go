@@ -29,7 +29,7 @@ install:
   - make get
 
 script:
-  - go test -coverprofile=coverage.out -covermode=count -coverpkg=$(go list ./... | grep -v '/vendor/' | paste -sd, -) ./...
+  - sudo -E $(which go) test -v -coverprofile=coverage.out -covermode=count -coverpkg=$(go list ./... | grep -v '/vendor/' | paste -sd, -) ./...
   - make fmt vet build
 
 after_success:
