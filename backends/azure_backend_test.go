@@ -30,7 +30,7 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/storage"
-	"github.com/Azure/azure-storage-blob-go/2018-03-28/azblob"
+	"github.com/Azure/azure-storage-blob-go/azblob"
 )
 
 func TestAzureGetBackendForURI(t *testing.T) {
