@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"bufio"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -52,7 +53,7 @@ func GetCreationDate(ctx context.Context, target string) (time.Time, error) {
 // GetSnapshots will retrieve all snapshots for the given target
 func GetSnapshots(ctx context.Context, target string) ([]SnapshotInfo, error) {
 	errB := new(bytes.Buffer)
-	cmd := exec.CommandContext(ctx, ZFSPath, "list", "-H", "-d", "1", "-p", "-t", "snapshot", "-r", "-o", "name,creation", "-S", "creation", target)
+	cmd := exec.CommandContext(ctx, ZFSPath, "list", "-H", "-d", "1", "-t", "snapshot", "-r", "-o", "name,creation", "-S", "creation", target)
 	AppLogger.Debugf("Getting ZFS Snapshots with command \"%s\"", strings.Join(cmd.Args, " "))
 	cmd.Stderr = errB
 	rpipe, err := cmd.StdoutPipe()
@@ -64,19 +65,37 @@ func GetSnapshots(ctx context.Context, target string) ([]SnapshotInfo, error) {
 		return nil, fmt.Errorf("%s (%v)", strings.TrimSpace(errB.String()), err)
 	}
 	var snapshots []SnapshotInfo
-	for {
+        scanner := bufio.NewScanner(rpipe)
+	for scanner.Scan() {
 		snapInfo := SnapshotInfo{}
-		var creation int64
-		n, nerr := fmt.Fscanln(rpipe, &snapInfo.Name, &creation)
-		if n == 0 || nerr != nil {
-			break
-		}
-		snapInfo.CreationTime = time.Unix(creation, 0)
+                var creation string
+                var nerr error
+
+		line := scanner.Text()
+                s := strings.SplitN(line, "\t", 2)
+                if len(s) != 2 {
+                        AppLogger.Debugf("Failed to parse ZFS list output \"%s\"", line)
+                        break
+                }
+                snapInfo.Name = s[0]
+                creation = s[1]
+
+                // XXX this will not work across DST changes
+                loc := time.Now().Local().Location()
+                snapInfo.CreationTime, nerr = time.ParseInLocation("Mon Jan 2 15:04 2006", creation, loc)
+                if nerr != nil {
+                        AppLogger.Debugf("Failed to parse time \"%s\" from \"%s\"", creation, snapInfo.Name)
+                        break
+                }
+                AppLogger.Debugf("Found ZFS snapshot \"%s\" from %s", snapInfo.Name, snapInfo.CreationTime.String())
 		snapInfo.Name = snapInfo.Name[strings.Index(snapInfo.Name, "@")+1:]
 		snapshots = append(snapshots, snapInfo)
 	}
-	err = cmd.Wait()
-	if err != nil {
+        err = scanner.Err()
+        if err == nil {
+	        err = cmd.Wait()
+        }
+        if err != nil {
 		return nil, err
 	}
 
