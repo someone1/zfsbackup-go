@@ -93,11 +93,10 @@ func (b *B2Backend) Init(ctx context.Context, conf *BackendConfig, opts ...Optio
 		return err
 	}
 
-	_, _, err = b.bucketCli.ListCurrentObjects(ctx, 0, nil)
-	if err == io.EOF {
-		err = nil
-	}
-	return err
+	// Poke the bucket to ensure it exists.
+	iter := b.bucketCli.List(ctx, b2.ListPageSize(1))
+	iter.Next()
+	return iter.Err()
 }
 
 // Upload will upload the provided volume to this B2Backend's configured bucket+prefix
@@ -149,30 +148,14 @@ func (b *B2Backend) Close() error {
 // List will iterate through all objects in the configured B2 bucket and return
 // a list of object names, filtering by the provided prefix.
 func (b *B2Backend) List(ctx context.Context, prefix string) ([]string, error) {
-	resp, cursor, err := b.bucketCli.ListCurrentObjects(ctx, 1000, &b2.Cursor{
-		Prefix: prefix,
-	})
-
-	if err != nil && err != io.EOF {
+	var l []string
+	iter := b.bucketCli.List(ctx, b2.ListPrefix(prefix))
+	for iter.Next() {
+		obj := iter.Object()
+		l = append(l, obj.Name())
+	}
+	if err := iter.Err(); err != nil {
 		return nil, err
 	}
-
-	l := make([]string, 0, len(resp))
-	for {
-		for _, obj := range resp {
-			l = append(l, obj.Name())
-		}
-
-		if cursor == nil || err == io.EOF {
-			break
-		}
-
-		resp, cursor, err = b.bucketCli.ListCurrentObjects(ctx, 1000, cursor)
-
-		if err != nil && err != io.EOF {
-			return nil, err
-		}
-	}
-
 	return l, nil
 }
