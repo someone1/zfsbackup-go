@@ -158,7 +158,7 @@ func processFlags(cmd *cobra.Command, args []string) error {
 	}
 
 	if jobInfo.EncryptTo != "" {
-		if jobInfo.EncryptKey = helpers.GetPrivateKeyByEmail(jobInfo.EncryptTo); jobInfo.EncryptKey == nil {
+		if jobInfo.EncryptKey = helpers.GetPublicKeyByEmail(jobInfo.EncryptTo); jobInfo.EncryptKey == nil {
 			helpers.AppLogger.Errorf("Could not find public key for %s", jobInfo.EncryptTo)
 			return errInvalidInput
 		}
