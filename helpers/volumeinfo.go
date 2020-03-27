@@ -60,6 +60,7 @@ const (
 	BufferSize = 256 * humanize.KiByte // 256KiB
 	// InternalCompressor is the key used to indicate we want to utilize the internal compressor
 	InternalCompressor = "internal"
+	ZfsCompressor      = "zfs"
 )
 
 // VolumeInfo holds all necessary information for a Volume as part of a backup
@@ -229,6 +230,7 @@ func (v *VolumeInfo) Extract(ctx context.Context, j *JobInfo, isManifest bool) e
 		}
 		v.r = v.rw
 	case "":
+	case ZfsCompressor:
 	default:
 		v.cmd = exec.CommandContext(ctx, compressor, "-c", "-d")
 		v.cmd.Stdin = v.r
@@ -443,6 +445,8 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe bool, isManifest bool) 
 		})
 	case "":
 		printCompressCMD.Do(func() { AppLogger.Infof("Will not be using any compression.") })
+	case ZfsCompressor:
+		printCompressCMD.Do(func() { AppLogger.Infof("Will send a ZFS compressed stream") })
 	default:
 		extensions = append([]string{compressorName}, extensions...)
 

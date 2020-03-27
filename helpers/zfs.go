@@ -120,6 +120,11 @@ func GetZFSSendCommand(ctx context.Context, j *JobInfo) *exec.Cmd {
 		zfsArgs = append(zfsArgs, "-p")
 	}
 
+	if j.Compressor == ZfsCompressor {
+		AppLogger.Infof("Enabling the compression (-c) flag on the send.")
+		zfsArgs = append(zfsArgs, "-c")
+	}
+
 	if j.IntermediaryIncremental && j.IncrementalSnapshot.Name != "" {
 		AppLogger.Infof("Enabling an incremental stream with all intermediary snapshots (-I) on the send to snapshot %s", j.IncrementalSnapshot.Name)
 		zfsArgs = append(zfsArgs, "-I", j.IncrementalSnapshot.Name)
