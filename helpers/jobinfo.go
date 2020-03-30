@@ -94,7 +94,8 @@ func (s *SnapshotInfo) Equal(t *SnapshotInfo) bool {
 	if s == nil || t == nil {
 		return s == t
 	}
-	return strings.Compare(s.Name, t.Name) == 0 && s.CreationTime.Equal(t.CreationTime)
+	return strings.Compare(s.Name, t.Name) == 0 &&
+               s.CreationTime.Truncate(time.Minute).Equal(t.CreationTime.Truncate(time.Minute))
 }
 
 // TotalBytesWritten will sum up the size of all underlying Volumes to give a total
