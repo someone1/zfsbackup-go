@@ -11,11 +11,11 @@ services:
 
 go:
   - 1.11.x
-  - tip
+
 
 env:
-  - rel=0.7.13 AZURE_CUSTOM_ENDPOINT=http://127.0.0.1:10000/devstoreaccount1 AWS_S3_CUSTOM_ENDPOINT=http://127.0.0.1:9000 AWS_REGION=us-east-1
-  - rel=0.8.3 AZURE_CUSTOM_ENDPOINT=http://127.0.0.1:10000/devstoreaccount1 AWS_S3_CUSTOM_ENDPOINT=http://127.0.0.1:9000 AWS_REGION=us-east-1
+  - spl=true rel=0.7.13 AZURE_CUSTOM_ENDPOINT=http://127.0.0.1:10000/devstoreaccount1 AWS_S3_CUSTOM_ENDPOINT=http://127.0.0.1:9000 AWS_REGION=us-east-1
+  - spl=false rel=0.8.3 AZURE_CUSTOM_ENDPOINT=http://127.0.0.1:10000/devstoreaccount1 AWS_S3_CUSTOM_ENDPOINT=http://127.0.0.1:9000 AWS_REGION=us-east-1
 
 before_install:
   - export MAKEFLAGS=-j$(($(grep -c '^processor' /proc/cpuinfo) * 2 + 1))
@@ -24,9 +24,9 @@ before_install:
   - sudo apt-get install -y linux-headers-`uname -r` tree uuid-dev libattr1-dev libblkid-dev
   - mkdir -p $HOME/zfs
   - cd $HOME/zfs
-  - "[[ -d spl-$rel.tar.gz ]] || curl -L https://github.com/zfsonlinux/zfs/releases/download/zfs-$rel/spl-$rel.tar.gz | tar xz"
+  - "[[ $spl == "true" ]] && [[ -d spl-$rel.tar.gz ]] || curl -L https://github.com/zfsonlinux/zfs/releases/download/zfs-$rel/spl-$rel.tar.gz | tar xz"
   - "[[ -d zfs-$rel.tar.gz ]] || curl -L https://github.com/zfsonlinux/zfs/releases/download/zfs-$rel/zfs-$rel.tar.gz | tar xz"
-  - (cd spl-$rel && ./configure --prefix=/usr && make && sudo make install)
+  - "[[ $spl == "true" ]] && (cd spl-$rel && ./configure --prefix=/usr && make && sudo make install)"
   - (cd zfs-$rel && ./configure --prefix=/usr && make && sudo make install)
   - sudo modprobe zfs
   - cd $TRAVIS_BUILD_DIR
