@@ -27,7 +27,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 // FileBackendPrefix is the URI prefix used for the FileBackend.
@@ -50,18 +51,18 @@ func (f *FileBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Opt
 
 	absLocalPath, err := filepath.Abs(cleanPrefix)
 	if err != nil {
-		helpers.AppLogger.Errorf("file backend: Error while verifying path %s - %v", cleanPrefix, err)
+		log.AppLogger.Errorf("file backend: Error while verifying path %s - %v", cleanPrefix, err)
 		return err
 	}
 
 	fi, err := os.Stat(absLocalPath)
 	if err != nil {
-		helpers.AppLogger.Errorf("file backend: Error while verifying path %s - %v", absLocalPath, err)
+		log.AppLogger.Errorf("file backend: Error while verifying path %s - %v", absLocalPath, err)
 		return err
 	}
 
 	if !fi.IsDir() {
-		helpers.AppLogger.Errorf("file backend: Provided path is not a directory!")
+		log.AppLogger.Errorf("file backend: Provided path is not a directory!")
 		return ErrInvalidURI
 	}
 
@@ -70,7 +71,7 @@ func (f *FileBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Opt
 }
 
 // Upload will copy the provided VolumeInfo to the backend's configured local destination
-func (f *FileBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
+func (f *FileBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 	f.conf.MaxParallelUploadBuffer <- true
 	defer func() {
 		<-f.conf.MaxParallelUploadBuffer
@@ -80,19 +81,19 @@ func (f *FileBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error
 	destinationDir := filepath.Dir(destinationPath)
 
 	if err := os.MkdirAll(destinationDir, os.ModePerm); err != nil {
-		helpers.AppLogger.Debugf("file backend: Could not create path %s due to error - %v", destinationDir, err)
+		log.AppLogger.Debugf("file backend: Could not create path %s due to error - %v", destinationDir, err)
 		return err
 	}
 
 	w, err := os.Create(destinationPath)
 	if err != nil {
-		helpers.AppLogger.Debugf("file backend: Could not create file %s due to error - %v", destinationPath, err)
+		log.AppLogger.Debugf("file backend: Could not create file %s due to error - %v", destinationPath, err)
 		return err
 	}
 
 	_, err = io.Copy(w, vol)
 	if err != nil {
-		helpers.AppLogger.Debugf("file backend: Error while copying volume %s - %v", vol.ObjectName, err)
+		log.AppLogger.Debugf("file backend: Error while copying volume %s - %v", vol.ObjectName, err)
 		return err
 	}
 

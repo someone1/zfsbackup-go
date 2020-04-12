@@ -25,7 +25,8 @@ import (
 	"errors"
 	"io"
 
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 // DeleteBackendPrefix is the URI prefix used for the DeleteBackend.
@@ -68,12 +69,12 @@ func (d *DeleteBackend) List(ctx context.Context, prefix string) ([]string, erro
 }
 
 // Upload will delete the provided volume, usually found in a temporary folder
-func (d *DeleteBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
+func (d *DeleteBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 	if err := vol.DeleteVolume(); err != nil {
-		helpers.AppLogger.Errorf("delete backend: could not delete volume %s due to error: %v", vol.ObjectName, err)
+		log.AppLogger.Errorf("delete backend: could not delete volume %s due to error: %v", vol.ObjectName, err)
 		return err
 	}
-	helpers.AppLogger.Debugf("delete backend: Deleted Volume %s", vol.ObjectName)
+	log.AppLogger.Debugf("delete backend: Deleted Volume %s", vol.ObjectName)
 
 	return nil
 }

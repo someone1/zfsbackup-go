@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package helpers
+package files
 
 import (
 	"bufio"
@@ -43,16 +43,14 @@ import (
 	"github.com/miolini/datacounter"
 	"golang.org/x/crypto/openpgp"
 	"golang.org/x/crypto/openpgp/packet"
+
+	"github.com/someone1/zfsbackup-go/config"
+	"github.com/someone1/zfsbackup-go/log"
+	"github.com/someone1/zfsbackup-go/pgp"
 )
 
 var (
 	printCompressCMD sync.Once
-	// BackupUploadBucket is the bandwidth rate-limit bucket if we need one.
-	BackupUploadBucket *ratelimit.Bucket
-	// BackupTempdir is the scratch space for our output
-	BackupTempdir string
-	// WorkingDir is the directory that all the cache/scratch work is done for this program
-	WorkingDir string
 )
 
 const (
@@ -175,8 +173,8 @@ func (v *VolumeInfo) OpenVolume() error {
 	v.r = f
 	v.isClosed = false
 	v.isOpened = true
-	if BackupUploadBucket != nil {
-		v.r = ratelimit.Reader(v.r, BackupUploadBucket)
+	if config.BackupUploadBucket != nil {
+		v.r = ratelimit.Reader(v.r, config.BackupUploadBucket)
 	}
 
 	return nil
@@ -208,7 +206,7 @@ func (v *VolumeInfo) Extract(ctx context.Context, j *JobInfo, isManifest bool) e
 		config := new(packet.Config)
 		config.DefaultCompressionAlgo = packet.CompressionNone // We will do our own, thank you very much!
 		config.DefaultCipher = packet.CipherAES256
-		pgpReader, perr := openpgp.ReadMessage(v.r, getCombinedKeyRing(), promptFunc, config)
+		pgpReader, perr := openpgp.ReadMessage(v.r, pgp.GetCombinedKeyRing(), pgp.PromptFunc, config)
 		if perr != nil {
 			return perr
 		}
@@ -441,12 +439,12 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe bool, isManifest bool) 
 		v.w = v.cw
 		extensions = append([]string{"gz"}, extensions...)
 		printCompressCMD.Do(func() {
-			AppLogger.Infof("Will be using internal gzip compressor with compression level %d.", j.CompressionLevel)
+			log.AppLogger.Infof("Will be using internal gzip compressor with compression level %d.", j.CompressionLevel)
 		})
 	case "":
-		printCompressCMD.Do(func() { AppLogger.Infof("Will not be using any compression.") })
+		printCompressCMD.Do(func() { log.AppLogger.Infof("Will not be using any compression.") })
 	case ZfsCompressor:
-		printCompressCMD.Do(func() { AppLogger.Infof("Will send a ZFS compressed stream") })
+		printCompressCMD.Do(func() { log.AppLogger.Infof("Will send a ZFS compressed stream") })
 	default:
 		extensions = append([]string{compressorName}, extensions...)
 
@@ -462,7 +460,7 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe bool, isManifest bool) 
 		v.cmd.Stderr = os.Stderr
 
 		printCompressCMD.Do(func() {
-			AppLogger.Infof("Will be using the external binary %s for compression with compression level %d. The executing command will be: %s", j.Compressor, j.CompressionLevel, strings.Join(v.cmd.Args, " "))
+			log.AppLogger.Infof("Will be using the external binary %s for compression with compression level %d. The executing command will be: %s", j.Compressor, j.CompressionLevel, strings.Join(v.cmd.Args, " "))
 		})
 
 		err = v.cmd.Start()
@@ -549,11 +547,11 @@ func CreateSimpleVolume(ctx context.Context, pipe bool) (*VolumeInfo, error) {
 		v.w = v.pw
 		v.isOpened = true
 		v.usingPipe = true
-		if BackupUploadBucket != nil {
-			v.r = ratelimit.Reader(v.r, BackupUploadBucket)
+		if config.BackupUploadBucket != nil {
+			v.r = ratelimit.Reader(v.r, config.BackupUploadBucket)
 		}
 	} else {
-		tempFile, err := ioutil.TempFile(BackupTempdir, LogModuleName)
+		tempFile, err := ioutil.TempFile(config.BackupTempdir, config.ProgramName)
 		if err != nil {
 			return nil, err
 		}

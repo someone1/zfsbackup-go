@@ -42,7 +42,6 @@ import (
 	"github.com/someone1/zfsbackup-go/backends"
 	"github.com/someone1/zfsbackup-go/backup"
 	"github.com/someone1/zfsbackup-go/cmd"
-	"github.com/someone1/zfsbackup-go/helpers"
 )
 
 const s3TestBucketName = "s3integrationbuckettest"
@@ -117,28 +116,28 @@ func setupS3Bucket(t *testing.T) func() {
 }
 
 func TestVersion(t *testing.T) {
-	old := helpers.Stdout
+	old := files.Stdout
 	buf := bytes.NewBuffer(nil)
-	helpers.Stdout = buf
-	defer func() { helpers.Stdout = old }()
+	files.Stdout = buf
+	defer func() { files.Stdout = old }()
 
-	os.Args = []string{helpers.ProgramName, "version"}
+	os.Args = []string{files.ProgramName, "version"}
 	main()
 
-	if !strings.Contains(buf.String(), fmt.Sprintf("Version:\tv%s", helpers.Version())) {
+	if !strings.Contains(buf.String(), fmt.Sprintf("Version:\tv%s", files.Version())) {
 		t.Fatalf("expected version in version command output, did not recieve one:\n%s", buf.String())
 	}
 
 	buf.Reset()
-	os.Args = []string{helpers.ProgramName, "version", "--jsonOutput"}
+	os.Args = []string{files.ProgramName, "version", "--jsonOutput"}
 	main()
 	var jout = struct {
 		Version string
 	}{}
 	if err := json.Unmarshal(buf.Bytes(), &jout); err != nil {
 		t.Fatalf("expected output to be JSON, got error while trying to decode - %v", err)
-	} else if jout.Version != helpers.Version() {
-		t.Fatalf("expected version to be '%s', got '%s' instead", helpers.Version(), jout.Version)
+	} else if jout.Version != files.Version() {
+		t.Fatalf("expected version to be '%s', got '%s' instead", files.Version(), jout.Version)
 	}
 }
 
@@ -223,10 +222,10 @@ func TestIntegration(t *testing.T) {
 
 func listWrapper(bucket string) func(*testing.T) {
 	return func(t *testing.T) {
-		old := helpers.Stdout
+		old := files.Stdout
 		buf := bytes.NewBuffer(nil)
-		helpers.Stdout = buf
-		defer func() { helpers.Stdout = old }()
+		files.Stdout = buf
+		defer func() { files.Stdout = old }()
 
 		var listTests = []struct {
 			volumeName string
@@ -267,7 +266,7 @@ func listWrapper(bucket string) func(*testing.T) {
 			}
 			cmd.ResetListJobInfo()
 
-			jout := make(map[string][]*helpers.JobInfo)
+			jout := make(map[string][]*files.JobInfo)
 			if err := json.Unmarshal(buf.Bytes(), &jout); err != nil {
 				t.Fatalf("error parsing json output: %v", err)
 			}

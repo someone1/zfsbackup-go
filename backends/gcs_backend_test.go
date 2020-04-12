@@ -30,7 +30,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
 )
 
 type gcsMockClient struct {
@@ -151,7 +151,7 @@ func TestGCSClose(t *testing.T) {
 	testCases := []struct {
 		testcase gcsTestCase
 		output   error
-		in       <-chan *helpers.VolumeInfo
+		in       <-chan *files.VolumeInfo
 	}{
 		{
 			testcase: gcsTestCase{
@@ -372,7 +372,7 @@ func TestGCSUpload(t *testing.T) {
 	testCases := []struct {
 		gcsTestCase
 		errTest errTestFunc
-		vol     *helpers.VolumeInfo
+		vol     *files.VolumeInfo
 	}{
 		{
 			gcsTestCase: gcsTestCase{

@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package helpers
+package files
 
 import (
 	"fmt"
@@ -28,6 +28,8 @@ import (
 
 	humanize "github.com/dustin/go-humanize"
 	"golang.org/x/crypto/openpgp"
+
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 var (
@@ -156,7 +158,7 @@ func (j *JobInfo) ValidateSendFlags() error {
 	}
 
 	if j.MaxFileBuffer < j.MaxParallelUploads {
-		AppLogger.Warningf("The number of parallel uploads (%d) is greater than the number of active files allowed (%d), this may result in an unachievable max parallel upload target.", j.MaxParallelUploads, j.MaxFileBuffer)
+		log.AppLogger.Warningf("The number of parallel uploads (%d) is greater than the number of active files allowed (%d), this may result in an unachievable max parallel upload target.", j.MaxParallelUploads, j.MaxFileBuffer)
 	}
 
 	if j.MaxRetryTime < 0 {

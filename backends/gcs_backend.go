@@ -30,7 +30,8 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 // GoogleCloudStorageBackendPrefix is the URI prefix used for the GoogleCloudStorageBackend.
@@ -154,7 +155,10 @@ func (g *GoogleCloudStorageBackend) Init(ctx context.Context, conf *BackendConfi
 }
 
 // Upload will upload the provided VolumeInfo to Google's Cloud Storage
-func (g *GoogleCloudStorageBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
+// It utilizes Resumeable Uploads to upload one file at a time serially.
+// Incomplete uploads auto-expire after one week. See:
+// https://cloud.google.com/storage/docs/json_api/v1/how-tos/resumable-upload
+func (g *GoogleCloudStorageBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 	g.conf.MaxParallelUploadBuffer <- true
 	defer func() {
 		<-g.conf.MaxParallelUploadBuffer
@@ -164,7 +168,7 @@ func (g *GoogleCloudStorageBackend) Upload(ctx context.Context, vol *helpers.Vol
 	w := g.client.NewWriter(ctx, g.bucketName, objName, vol.CRC32CSum32, g.conf.UploadChunkSize)
 	if _, err := io.Copy(w, vol); err != nil {
 		w.Close()
-		helpers.AppLogger.Debugf("gs backend: Error while uploading volume %s - %v", vol.ObjectName, err)
+		log.AppLogger.Debugf("gs backend: Error while uploading volume %s - %v", vol.ObjectName, err)
 		return err
 	}
 	return w.Close()

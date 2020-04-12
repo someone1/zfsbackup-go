@@ -27,13 +27,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
 )
 
 // Backend is an interface type that defines the functions and functionality required for different backend implementations.
 type Backend interface {
 	Init(ctx context.Context, conf *BackendConfig, opts ...Option) error  // Verifies settings required for backend are present and valid, does basic initialization of backend
-	Upload(ctx context.Context, vol *helpers.VolumeInfo) error            // Upload the volume provided
+	Upload(ctx context.Context, vol *files.VolumeInfo) error            // Upload the volume provided
 	List(ctx context.Context, prefix string) ([]string, error)            // Lists all files in the backend, filtering by the provided prefix.
 	Close() error                                                         // Release any resources in use
 	PreDownload(ctx context.Context, objects []string) error              // PreDownload will prepare the provided files for download (think restoring from Glacier to S3)

@@ -27,7 +27,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/someone1/zfsbackup-go/backup"
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 var (
@@ -47,18 +47,18 @@ var listCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if startsWith != "" {
 			if startsWith[len(startsWith)-1:] == "*" {
-				helpers.AppLogger.Infof("Listing all backup jobs for volumes starting with %s", startsWith)
+				log.AppLogger.Infof("Listing all backup jobs for volumes starting with %s", startsWith)
 			} else {
-				helpers.AppLogger.Infof("Listing all backup jobs for volume %s", startsWith)
+				log.AppLogger.Infof("Listing all backup jobs for volume %s", startsWith)
 			}
 		}
 
 		if !before.IsZero() {
-			helpers.AppLogger.Infof("Listing all back jobs of snapshots taken before %v", before)
+			log.AppLogger.Infof("Listing all back jobs of snapshots taken before %v", before)
 		}
 
 		if !after.IsZero() {
-			helpers.AppLogger.Infof("Listing all back jobs of snapshots taken after %v", after)
+			log.AppLogger.Infof("Listing all back jobs of snapshots taken after %v", after)
 		}
 
 		jobInfo.Destinations = []string{args[0]}
@@ -83,7 +83,7 @@ func validateListFlags(cmd *cobra.Command, args []string) error {
 	if beforeStr != "" {
 		parsed, perr := time.ParseInLocation(time.RFC3339[:19], beforeStr, time.Local)
 		if perr != nil {
-			helpers.AppLogger.Errorf("could not parse before time '%s' due to error: %v", beforeStr, perr)
+			log.AppLogger.Errorf("could not parse before time '%s' due to error: %v", beforeStr, perr)
 			return perr
 		}
 		before = parsed
@@ -92,7 +92,7 @@ func validateListFlags(cmd *cobra.Command, args []string) error {
 	if afterStr != "" {
 		parsed, perr := time.ParseInLocation(time.RFC3339[:19], afterStr, time.Local)
 		if perr != nil {
-			helpers.AppLogger.Errorf("could not parse before time '%s' due to error: %v", beforeStr, perr)
+			log.AppLogger.Errorf("could not parse before time '%s' due to error: %v", beforeStr, perr)
 			return perr
 		}
 		after = parsed

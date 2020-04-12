@@ -40,7 +40,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
 )
 
 type mockS3Client struct {
@@ -339,7 +339,7 @@ func TestS3Upload(t *testing.T) {
 		conf    *BackendConfig
 		errTest errTestFunc
 		key     string
-		vol     *helpers.VolumeInfo
+		vol     *files.VolumeInfo
 	}{
 		{
 			conf: &BackendConfig{

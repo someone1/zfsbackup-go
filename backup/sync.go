@@ -30,11 +30,14 @@ import (
 	"strings"
 
 	"github.com/someone1/zfsbackup-go/backends"
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/config"
+	"github.com/someone1/zfsbackup-go/files"
+	"github.com/someone1/zfsbackup-go/log"
+	"github.com/someone1/zfsbackup-go/zfs"
 )
 
-func prepareBackend(ctx context.Context, j *helpers.JobInfo, backendURI string, uploadBuffer chan bool) (backends.Backend, error) {
-	helpers.AppLogger.Debugf("Initializing Backend %s", backendURI)
+func prepareBackend(ctx context.Context, j *files.JobInfo, backendURI string, uploadBuffer chan bool) (backends.Backend, error) {
+	log.AppLogger.Debugf("Initializing Backend %s", backendURI)
 	conf := &backends.BackendConfig{
 		MaxParallelUploadBuffer: uploadBuffer,
 		TargetURI:               backendURI,
@@ -56,7 +59,7 @@ func prepareBackend(ctx context.Context, j *helpers.JobInfo, backendURI string, 
 
 func getCacheDir(backendURI string) (string, error) {
 	safeFolder := fmt.Sprintf("%x", md5.Sum([]byte(backendURI)))
-	dest := filepath.Join(helpers.WorkingDir, "cache", safeFolder)
+	dest := filepath.Join(config.WorkingDir, "cache", safeFolder)
 	oerr := os.MkdirAll(dest, os.ModePerm)
 	if oerr != nil {
 		return "", fmt.Errorf("could not create cache directory %s due to an error: %v", dest, oerr)
@@ -66,7 +69,7 @@ func getCacheDir(backendURI string) (string, error) {
 }
 
 // Returns local manifest paths that exist in the backend and those that do not
-func syncCache(ctx context.Context, j *helpers.JobInfo, localCache string, backend backends.Backend) ([]string, []string, error) {
+func syncCache(ctx context.Context, j *files.JobInfo, localCache string, backend backends.Backend) ([]string, []string, error) {
 	// List all manifests at the destination
 	manifests, merr := backend.List(ctx, j.ManifestPrefix)
 	if merr != nil {
@@ -112,7 +115,7 @@ func syncCache(ctx context.Context, j *helpers.JobInfo, localCache string, backe
 	}
 
 	if len(manifests) > 0 {
-		helpers.AppLogger.Debugf("Syncing %d manifests to local cache.", len(manifests))
+		log.AppLogger.Debugf("Syncing %d manifests to local cache.", len(manifests))
 
 		// manifests should only contain what we don't have locally
 		for idx, manifest := range manifests {
@@ -125,8 +128,8 @@ func syncCache(ctx context.Context, j *helpers.JobInfo, localCache string, backe
 	return safeManifests, localOnlyFiles, nil
 }
 
-func validateSnapShotExists(ctx context.Context, snapshot *helpers.SnapshotInfo, target string, includeBookmarks bool) (bool, error) {
-	snapshots, err := helpers.GetSnapshotsAndBookmarks(ctx, target)
+func validateSnapShotExists(ctx context.Context, snapshot *files.SnapshotInfo, target string, includeBookmarks bool) (bool, error) {
+	snapshots, err := zfs.GetSnapshotsAndBookmarks(ctx, target)
 	if err != nil {
 		// TODO: There are some error cases that are ok to ignore!
 		return false, nil
@@ -134,7 +137,7 @@ func validateSnapShotExists(ctx context.Context, snapshot *helpers.SnapshotInfo,
 	return validateSnapShotExistsFromSnaps(snapshot, snapshots, includeBookmarks), nil
 }
 
-func validateSnapShotExistsFromSnaps(snapshot *helpers.SnapshotInfo, snapshots []helpers.SnapshotInfo, includeBookmarks bool) bool {
+func validateSnapShotExistsFromSnaps(snapshot *files.SnapshotInfo, snapshots []files.SnapshotInfo, includeBookmarks bool) bool {
 	for _, snap := range snapshots {
 		if !includeBookmarks && snap.Bookmark {
 			continue

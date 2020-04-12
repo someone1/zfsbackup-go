@@ -30,7 +30,8 @@ import (
 
 	"github.com/kurin/blazer/b2"
 
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 // B2BackendPrefix is the URI prefix used for the B2Backend.
@@ -100,7 +101,7 @@ func (b *B2Backend) Init(ctx context.Context, conf *BackendConfig, opts ...Optio
 }
 
 // Upload will upload the provided volume to this B2Backend's configured bucket+prefix
-func (b *B2Backend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
+func (b *B2Backend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 	// We will be doing multipart uploads, no need to allow multiple calls of Upload to initiate new uploads.
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
@@ -117,7 +118,7 @@ func (b *B2Backend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
 
 	if _, err := io.Copy(w, vol); err != nil {
 		w.Close()
-		helpers.AppLogger.Debugf("b2 backend: Error while uploading volume %s - %v", vol.ObjectName, err)
+		log.AppLogger.Debugf("b2 backend: Error while uploading volume %s - %v", vol.ObjectName, err)
 		return err
 	}
 

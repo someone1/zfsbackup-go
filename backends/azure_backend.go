@@ -38,7 +38,8 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 // Keep an eye on the Azure Go SDK, apparently there's a rewrite in progress: https://github.com/Azure/azure-sdk-for-go/issues/626#issuecomment-324398278
@@ -130,7 +131,10 @@ func (a *AzureBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Op
 }
 
 // Upload will upload the provided volume to this AzureBackend's configured container+prefix
-func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
+// It utilizes Azure Block Blob uploads to upload chunks of a single file concurrently. Partial
+// uploads are automatically garbage collected after one week. See:
+// https://docs.microsoft.com/en-us/rest/api/storageservices/put-block-list
+func (a *AzureBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 	// We will achieve parallel upload by splitting a single upload into chunks
 	// so don't let multiple calls to this function run in parallel.
 	a.mutex.Lock()
@@ -201,7 +205,7 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 
 	err := errg.Wait()
 	if err != nil {
-		helpers.AppLogger.Debugf("azure backend: Error while uploading volume %s - %v", vol.ObjectName, err)
+		log.AppLogger.Debugf("azure backend: Error while uploading volume %s - %v", vol.ObjectName, err)
 		return err
 	}
 
@@ -213,7 +217,7 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 	// Finally, finalize the storage blob by giving Azure the block list order
 	_, err = blobURL.CommitBlockList(ctx, blockIDs, azblob.BlobHTTPHeaders{ContentMD5: md5Raw}, azblob.Metadata{}, azblob.BlobAccessConditions{})
 	if err != nil {
-		helpers.AppLogger.Debugf("azure backend: Error while finalizing volume %s - %v", vol.ObjectName, err)
+		log.AppLogger.Debugf("azure backend: Error while finalizing volume %s - %v", vol.ObjectName, err)
 	}
 	return err
 }

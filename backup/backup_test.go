@@ -33,7 +33,7 @@ import (
 	"time"
 
 	"github.com/someone1/zfsbackup-go/backends"
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
 )
 
 var (
@@ -47,7 +47,7 @@ func (m *mockBackend) Init(ctx context.Context, conf *backends.BackendConfig, op
 	return nil
 }
 
-func (m *mockBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
+func (m *mockBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 	// make sure we can read the volume
 	_, err := ioutil.ReadAll(vol)
 	return err
@@ -86,7 +86,7 @@ func TestRetryUploadChainer(t *testing.T) {
 	}
 
 	testCases := []struct {
-		vol   *helpers.VolumeInfo
+		vol   *files.VolumeInfo
 		valid errTestFunc
 	}{
 		{
@@ -99,7 +99,7 @@ func TestRetryUploadChainer(t *testing.T) {
 		},
 	}
 
-	j := &helpers.JobInfo{
+	j := &files.JobInfo{
 		MaxParallelUploads: 1,
 		MaxBackoffTime:     5 * time.Second,
 		MaxRetryTime:       1 * time.Minute,
@@ -110,7 +110,7 @@ func TestRetryUploadChainer(t *testing.T) {
 		if err := b.Init(context.Background(), nil); err != nil {
 			t.Errorf("%d: Expected error %v, got %v", idx, nil, err)
 		} else {
-			in := make(chan *helpers.VolumeInfo, 1)
+			in := make(chan *files.VolumeInfo, 1)
 			out, wg := retryUploadChainer(context.Background(), in, b, j, "mock://")
 			in <- testCase.vol
 			close(in)
@@ -127,13 +127,13 @@ func TestRetryUploadChainer(t *testing.T) {
 	}
 }
 
-func prepareTestVols() (payload []byte, goodVol *helpers.VolumeInfo, badVol *helpers.VolumeInfo, err error) {
+func prepareTestVols() (payload []byte, goodVol *files.VolumeInfo, badVol *files.VolumeInfo, err error) {
 	payload = make([]byte, 10*1024*1024)
 	if _, err = rand.Read(payload); err != nil {
 		return
 	}
 	reader := bytes.NewReader(payload)
-	goodVol, err = helpers.CreateSimpleVolume(context.Background(), false)
+	goodVol, err = files.CreateSimpleVolume(context.Background(), false)
 	if err != nil {
 		return
 	}
@@ -146,7 +146,7 @@ func prepareTestVols() (payload []byte, goodVol *helpers.VolumeInfo, badVol *hel
 		return
 	}
 
-	badVol, err = helpers.CreateSimpleVolume(context.Background(), false)
+	badVol, err = files.CreateSimpleVolume(context.Background(), false)
 	if err != nil {
 		return
 	}

@@ -33,7 +33,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
 )
 
 func TestFileGetBackendForURI(t *testing.T) {
@@ -262,7 +262,7 @@ func TestFileUpload(t *testing.T) {
 	}
 
 	testCases := []struct {
-		vol   *helpers.VolumeInfo
+		vol   *files.VolumeInfo
 		valid func(error) bool
 	}{
 		{
