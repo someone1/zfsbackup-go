@@ -52,11 +52,20 @@ var (
 
 // ProcessSmartOptions will compute the snapshots to use
 func ProcessSmartOptions(ctx context.Context, jobInfo *helpers.JobInfo) error {
-	snapshots, err := helpers.GetSnapshots(context.Background(), jobInfo.VolumeName)
+	snapshots, err := helpers.GetSnapshotsAndBookmarks(context.Background(), jobInfo.VolumeName)
 	if err != nil {
 		return err
 	}
-	jobInfo.BaseSnapshot = snapshots[0]
+	// Base Snapshots cannot be a bookmark
+	for i := range snapshots {
+		if !snapshots[i].Bookmark {
+			jobInfo.BaseSnapshot = snapshots[i]
+			break
+		}
+	}
+	if jobInfo.BaseSnapshot.Name == "" {
+		return fmt.Errorf("no snapshots found")
+	}
 	if jobInfo.Full {
 		// TODO: Check if we already have a full backup for this snapshot in the destination(s)
 		return nil
@@ -128,7 +137,7 @@ func ProcessSmartOptions(ctx context.Context, jobInfo *helpers.JobInfo) error {
 			return ErrNoOp
 		}
 
-		if ok, verr := validateSnapShotExists(ctx, lastComparableSnapshots[0], jobInfo.VolumeName); verr != nil {
+		if ok, verr := validateSnapShotExists(ctx, lastComparableSnapshots[0], jobInfo.VolumeName, true); verr != nil {
 			return verr
 		} else if !ok {
 			helpers.AppLogger.Infof("Last Full backup was done on %v but is no longer found in the local target, performing full backup.", lastComparableSnapshots[0].CreationTime, jobInfo.FullIfOlderThan)
@@ -213,7 +222,7 @@ func Backup(pctx context.Context, jobInfo *helpers.JobInfo) error {
 	}
 
 	// Validate the snapshots we want to use exist
-	if ok, verr := validateSnapShotExists(ctx, &jobInfo.BaseSnapshot, jobInfo.VolumeName); verr != nil {
+	if ok, verr := validateSnapShotExists(ctx, &jobInfo.BaseSnapshot, jobInfo.VolumeName, false); verr != nil {
 		helpers.AppLogger.Errorf("Cannot validate if selected base snapshot exists due to error - %v", verr)
 		return verr
 	} else if !ok {
@@ -222,7 +231,7 @@ func Backup(pctx context.Context, jobInfo *helpers.JobInfo) error {
 	}
 
 	if jobInfo.IncrementalSnapshot.Name != "" {
-		if ok, verr := validateSnapShotExists(ctx, &jobInfo.IncrementalSnapshot, jobInfo.VolumeName); verr != nil {
+		if ok, verr := validateSnapShotExists(ctx, &jobInfo.IncrementalSnapshot, jobInfo.VolumeName, true); verr != nil {
 			helpers.AppLogger.Errorf("Cannot validate if selected incremental snapshot exists due to error - %v", verr)
 			return verr
 		} else if !ok {

@@ -87,6 +87,7 @@ type JobInfo struct {
 type SnapshotInfo struct {
 	CreationTime time.Time
 	Name         string
+	Bookmark     bool
 }
 
 // Equal will test two SnapshotInfo objects for equality. This is based on the snapshot name and the time of creation

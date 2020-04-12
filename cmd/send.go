@@ -165,12 +165,20 @@ func updateJobInfo(args []string) error {
 		jobInfo.BaseSnapshot.CreationTime = creationTime
 
 		if jobInfo.IncrementalSnapshot.Name != "" {
+			var targetName string
 			jobInfo.IncrementalSnapshot.Name = strings.TrimPrefix(jobInfo.IncrementalSnapshot.Name, jobInfo.VolumeName)
-			jobInfo.IncrementalSnapshot.Name = strings.TrimPrefix(jobInfo.IncrementalSnapshot.Name, "@")
+			if strings.HasPrefix(jobInfo.IncrementalSnapshot.Name, "#") {
+				jobInfo.IncrementalSnapshot.Name = strings.TrimPrefix(jobInfo.IncrementalSnapshot.Name, "#")
+				targetName = fmt.Sprintf("%s#%s", jobInfo.VolumeName, jobInfo.IncrementalSnapshot.Name)
+				jobInfo.IncrementalSnapshot.Bookmark = true
+			} else {
+				jobInfo.IncrementalSnapshot.Name = strings.TrimPrefix(jobInfo.IncrementalSnapshot.Name, "@")
+				targetName = fmt.Sprintf("%s@%s", jobInfo.VolumeName, jobInfo.IncrementalSnapshot.Name)
+			}
 
-			creationTime, err = helpers.GetCreationDate(context.TODO(), fmt.Sprintf("%s@%s", jobInfo.VolumeName, jobInfo.IncrementalSnapshot.Name))
+			creationTime, err = helpers.GetCreationDate(context.TODO(), targetName)
 			if err != nil {
-				helpers.AppLogger.Errorf("Error trying to get creation date of specified incremental snapshot - %v", err)
+				helpers.AppLogger.Errorf("Error trying to get creation date of specified incremental snapshot/bookmark - %v", err)
 				return err
 			}
 			jobInfo.IncrementalSnapshot.CreationTime = creationTime

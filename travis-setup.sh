@@ -20,13 +20,13 @@ go get github.com/mitchellh/gox
 # Setup Docker containers
 sudo docker pull arafato/azurite
 sudo docker pull minio/minio
-sudo docker run -d -p 10000:10000 --name azurite --restart=on-failure arafato/azurite
-sudo docker run -d -p 9000:9000 --name minio minio/minio server /data
+sudo docker run -d -p 10000:10000 --rm --name azurite arafato/azurite
+sudo docker run -d -p 9000:9000 --rm --name minio minio/minio server /data
 
 # Setup env variables from Docker containers
 sleep 30
-export AWS_ACCESS_KEY_ID=$(sudo docker exec -it minio cat /data/.minio.sys/config/config.json | python -c "import sys, json; print(json.load(sys.stdin)['credential']['accessKey'])")
-export AWS_SECRET_ACCESS_KEY=$(sudo docker exec -it minio cat /data/.minio.sys/config/config.json | python -c "import sys, json; print(json.load(sys.stdin)['credential']['secretKey'])")
+export AWS_ACCESS_KEY_ID=minioadmin
+export AWS_SECRET_ACCESS_KEY=minioadmin
 
 # Scratch dir for tests
 mkdir ./scratch
