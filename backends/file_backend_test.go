@@ -95,7 +95,6 @@ func TestFileClose(t *testing.T) {
 			t.Errorf("Expected %v, got %v", nil, err)
 		}
 	}
-
 }
 
 func TestFilePreDownload(t *testing.T) {
@@ -251,7 +250,7 @@ func TestFileUpload(t *testing.T) {
 	if terr != nil {
 		t.Fatalf("error preparing temp dir for rests - %v", terr)
 	}
-	//defer os.RemoveAll(tempDir) // clean up
+	defer os.RemoveAll(tempDir) // clean up
 
 	config := &BackendConfig{
 		TargetURI:               "file://" + tempDir,
@@ -290,10 +289,8 @@ func TestFileUpload(t *testing.T) {
 				readVerify, rerr := ioutil.ReadFile(filepath.Join(tempDir, testCase.vol.ObjectName))
 				if rerr != nil {
 					t.Errorf("%d: expected file does not exist as we expect it to - %v", idx, rerr)
-				} else {
-					if !reflect.DeepEqual(testPayLoad, readVerify) {
+				} else !reflect.DeepEqual(testPayLoad, readVerify) {
 						t.Errorf("%d: read bytes not equal to given bytes", idx)
-					}
 				}
 			}
 		}

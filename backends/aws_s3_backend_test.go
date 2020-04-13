@@ -60,7 +60,11 @@ var (
 
 const s3TestBucketName = "s3bucketbackendtest"
 
-func (m *mockS3Client) DeleteObjectWithContext(ctx aws.Context, in *s3.DeleteObjectInput, _ ...request.Option) (*s3.DeleteObjectOutput, error) {
+func (m *mockS3Client) DeleteObjectWithContext(
+	ctx aws.Context,
+	in *s3.DeleteObjectInput,
+	_ ...request.Option,
+) (*s3.DeleteObjectOutput, error) {
 	if *in.Key == s3BadKey {
 		return nil, errTest
 	}
@@ -76,7 +80,11 @@ func (m *mockS3Client) GetObjectWithContext(ctx aws.Context, in *s3.GetObjectInp
 	return &s3.GetObjectOutput{}, nil
 }
 
-func (m *mockS3Client) ListObjectsV2WithContext(ctx aws.Context, in *s3.ListObjectsV2Input, _ ...request.Option) (*s3.ListObjectsV2Output, error) {
+func (m *mockS3Client) ListObjectsV2WithContext(
+	ctx aws.Context,
+	in *s3.ListObjectsV2Input,
+	_ ...request.Option,
+) (*s3.ListObjectsV2Output, error) {
 	if *in.Bucket == s3BadBucket || (in.Prefix != nil && *in.Prefix == s3BadKey) {
 		return nil, errTest
 	}

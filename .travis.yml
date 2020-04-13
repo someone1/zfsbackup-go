@@ -10,7 +10,8 @@ services:
   - docker
 
 go:
-  - 1.11.x
+  - 1.13.x
+  - 1.14.x
 
 env:
   - spl=true rel=0.7.13 AZURE_CUSTOM_ENDPOINT=http://127.0.0.1:10000/devstoreaccount1 AWS_S3_CUSTOM_ENDPOINT=http://127.0.0.1:9000 AWS_REGION=us-east-1
@@ -19,6 +20,7 @@ env:
 before_install:
   - export MAKEFLAGS=-j$(($(grep -c '^processor' /proc/cpuinfo) * 2 + 1))
   - export PATH=/usr/lib/ccache:$PATH
+  - export GOPATH=$HOME/go
   - sudo apt-get -qq update
   - sudo apt-get install -y linux-headers-`uname -r` tree uuid-dev libattr1-dev libblkid-dev
   - mkdir -p $HOME/zfs
@@ -32,12 +34,14 @@ before_install:
   - source ./travis-setup.sh
 
 install:
-  - $GOPATH/bin/gometalinter --install
+  - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.24.0
+  - GO111MODULE=off go get github.com/mattn/goveralls
+  - GO111MODULE=off go get github.com/mitchellh/gox
   - make get
 
 script:
-  - sudo -E $(which go) test -v -coverprofile=coverage.out -covermode=count -coverpkg=$(go list ./... | grep -v '/vendor/' | paste -sd, -) ./...
-  - make fmt vet build
+  - make lint build
+  - sudo -E $(which go) test -race -v -coverprofile=coverage.out -covermode=atomic -coverpkg=$(go list ./... | grep -v '/vendor/' | paste -sd, -) ./...
 
 after_success:
   - sudo -E $GOPATH/bin/goveralls -coverprofile=coverage.out -service=travis-ci

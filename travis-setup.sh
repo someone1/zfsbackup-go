@@ -12,11 +12,6 @@ sudo zfs snapshot tank/data@b
 sudo dd if=/dev/urandom of=/tank/data/c bs=256 count=409600
 sudo zfs snapshot tank/data@c
 
-# Install Go dependencies
-go get github.com/mattn/goveralls
-go get github.com/alecthomas/gometalinter
-go get github.com/mitchellh/gox
-
 # Setup Docker containers
 sudo docker pull arafato/azurite
 sudo docker pull minio/minio

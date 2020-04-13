@@ -88,7 +88,7 @@ func invalidByteErrTest(e error) bool {
 	return ok
 }
 
-func prepareTestVols() (payload []byte, goodVol *files.VolumeInfo, badVol *files.VolumeInfo, err error) {
+func prepareTestVols() (payload []byte, goodVol, badVol *files.VolumeInfo, err error) {
 	payload = make([]byte, 10*1024*1024)
 	if _, err = rand.Read(payload); err != nil {
 		return
@@ -120,7 +120,7 @@ func prepareTestVols() (payload []byte, goodVol *files.VolumeInfo, badVol *files
 
 	err = badVol.DeleteVolume()
 
-	return
+	return payload, goodVol, badVol, err
 }
 
 func TestGetBackendForURI(t *testing.T) {

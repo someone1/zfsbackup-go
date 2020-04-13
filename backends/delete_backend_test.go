@@ -55,7 +55,6 @@ func TestDeleteClose(t *testing.T) {
 			t.Errorf("Expected %v, got %v", nil, err)
 		}
 	}
-
 }
 
 func TestDeletePreDownload(t *testing.T) {

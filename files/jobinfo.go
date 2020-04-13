@@ -158,7 +158,11 @@ func (j *JobInfo) ValidateSendFlags() error {
 	}
 
 	if j.MaxFileBuffer < j.MaxParallelUploads {
-		log.AppLogger.Warningf("The number of parallel uploads (%d) is greater than the number of active files allowed (%d), this may result in an unachievable max parallel upload target.", j.MaxParallelUploads, j.MaxFileBuffer)
+		log.AppLogger.Warningf(
+			"The number of parallel uploads (%d) is greater than the number of active files allowed (%d), this may result in an unachievable max parallel upload target.", //nolint:lll // Long log output
+			j.MaxParallelUploads,
+			j.MaxFileBuffer,
+		)
 	}
 
 	if j.MaxRetryTime < 0 {
