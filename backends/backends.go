@@ -31,6 +31,7 @@ import (
 )
 
 // Backend is an interface type that defines the functions and functionality required for different backend implementations.
+// nolint:lll // It's neater this way
 type Backend interface {
 	Init(ctx context.Context, conf *BackendConfig, opts ...Option) error  // Verifies settings required for backend are present and valid, does basic initialization of backend
 	Upload(ctx context.Context, vol *files.VolumeInfo) error              // Upload the volume provided

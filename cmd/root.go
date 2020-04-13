@@ -151,13 +151,13 @@ func processFlags(cmd *cobra.Command, args []string) error {
 	}
 	log.AppLogger.Infof("Loaded public key ring %s", publicKeyRingPath)
 
-	if jobInfo.EncryptTo != "" && secretKeyRingPath == "" {
-		log.AppLogger.Errorf("You must specify a private keyring path if you provide an encryptFrom option")
+	if jobInfo.EncryptTo != "" && publicKeyRingPath == "" {
+		log.AppLogger.Errorf("You must specify a public keyring path if you provide an encryptTo option")
 		return errInvalidInput
 	}
 
-	if jobInfo.SignFrom != "" && publicKeyRingPath == "" {
-		log.AppLogger.Errorf("You must specify a public keyring path if you provide an signTo option")
+	if jobInfo.SignFrom != "" && secretKeyRingPath == "" {
+		log.AppLogger.Errorf("You must specify a secret keyring path if you provide a signFrom option")
 		return errInvalidInput
 	}
 
@@ -165,24 +165,6 @@ func processFlags(cmd *cobra.Command, args []string) error {
 		if jobInfo.EncryptKey = pgp.GetPublicKeyByEmail(jobInfo.EncryptTo); jobInfo.EncryptKey == nil {
 			log.AppLogger.Errorf("Could not find public key for %s", jobInfo.EncryptTo)
 			return errInvalidInput
-		}
-
-		if jobInfo.EncryptKey.PrivateKey != nil && jobInfo.EncryptKey.PrivateKey.Encrypted {
-			validatePassphrase()
-			if err := jobInfo.EncryptKey.PrivateKey.Decrypt(passphrase); err != nil {
-				log.AppLogger.Errorf("Error decrypting private key: %v", err)
-				return errInvalidInput
-			}
-		}
-
-		for _, subkey := range jobInfo.EncryptKey.Subkeys {
-			if subkey.PrivateKey != nil && subkey.PrivateKey.Encrypted {
-				validatePassphrase()
-				if err := subkey.PrivateKey.Decrypt(passphrase); err != nil {
-					log.AppLogger.Errorf("Error decrypting subkey's private key: %v", err)
-					return errInvalidInput
-				}
-			}
 		}
 	}
 

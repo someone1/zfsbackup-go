@@ -111,8 +111,7 @@ func (g *gcsClient) ListBucket(ctx context.Context, bucket, prefix string) ([]st
 type withGCSClient struct{ client GCSClientInterface }
 
 func (w withGCSClient) Apply(b Backend) {
-	switch v := b.(type) {
-	case *GoogleCloudStorageBackend:
+	if v, ok := b.(*GoogleCloudStorageBackend); ok {
 		v.client = w.client
 	}
 }
@@ -172,7 +171,6 @@ func (g *GoogleCloudStorageBackend) Upload(ctx context.Context, vol *files.Volum
 		return err
 	}
 	return w.Close()
-
 }
 
 // Delete will delete the given object from the configured bucket

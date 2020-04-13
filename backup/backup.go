@@ -22,7 +22,7 @@ package backup
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // Not used for cryptography
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,6 +54,7 @@ var (
 )
 
 // ProcessSmartOptions will compute the snapshots to use
+// nolint:funlen,gocyclo // Difficult to break this up
 func ProcessSmartOptions(ctx context.Context, jobInfo *files.JobInfo) error {
 	snapshots, err := zfs.GetSnapshotsAndBookmarks(context.Background(), jobInfo.VolumeName)
 	if err != nil {
@@ -129,7 +130,10 @@ func ProcessSmartOptions(ctx context.Context, jobInfo *files.JobInfo) error {
 
 		if snapshots[0].CreationTime.Sub(lastComparableSnapshots[0].CreationTime) > jobInfo.FullIfOlderThan {
 			// Been more than the allotted time, do a full backup
-			log.AppLogger.Infof("Last Full backup was %v and is more than %v before the most recent snapshot, performing full backup.", lastComparableSnapshots[0].CreationTime, jobInfo.FullIfOlderThan)
+			log.AppLogger.Infof(
+				"Last Full backup was %v and is more than %v before the most recent snapshot, performing full backup.",
+				lastComparableSnapshots[0].CreationTime, jobInfo.FullIfOlderThan,
+			)
 			return nil
 		}
 
@@ -143,7 +147,10 @@ func ProcessSmartOptions(ctx context.Context, jobInfo *files.JobInfo) error {
 		if ok, verr := validateSnapShotExists(ctx, lastComparableSnapshots[0], jobInfo.VolumeName, true); verr != nil {
 			return verr
 		} else if !ok {
-			log.AppLogger.Infof("Last Full backup was done on %v but is no longer found in the local target, performing full backup.", lastComparableSnapshots[0].CreationTime, jobInfo.FullIfOlderThan)
+			log.AppLogger.Infof(
+				"Last Full backup was done on %v but is no longer found in the local target, performing full backup.",
+				lastComparableSnapshots[0].CreationTime, jobInfo.FullIfOlderThan,
+			)
 			return nil
 		}
 		jobInfo.IncrementalSnapshot = *lastBackup[0]
@@ -194,6 +201,7 @@ func getBackupsForTarget(ctx context.Context, volume, target string, jobInfo *fi
 }
 
 // Backup will initiate a backup with the provided configuration.
+// nolint:funlen,gocyclo // Difficult to break this up
 func Backup(pctx context.Context, jobInfo *files.JobInfo) error {
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
@@ -205,6 +213,7 @@ func Backup(pctx context.Context, jobInfo *files.JobInfo) error {
 	}
 
 	// Make sure nobody else is working on the same volume/dataset we are!
+	// nolint:gosec // MD5 not used for cryptographic purposes
 	lockFilePath := filepath.Join(os.TempDir(), fmt.Sprintf("zfsbackup.%x.lck", md5.Sum([]byte(jobInfo.VolumeName))))
 	lock, lferr := lockfile.New(lockFilePath)
 	if lferr != nil {
@@ -214,10 +223,17 @@ func Backup(pctx context.Context, jobInfo *files.JobInfo) error {
 	lferr = lock.TryLock()
 
 	if lferr != nil {
-		log.AppLogger.Errorf("Cannot lock %q, reason: %v. If no other execution of %s is working on %s, you may forcefully remove the lock file located %s.", lock, lferr, config.ProgramName, jobInfo.VolumeName, lockFilePath)
+		log.AppLogger.Errorf(
+			"Cannot lock %q, reason: %v. If no other execution of %s is working on %s, you may forcefully remove the lock file located %s.",
+			lock, lferr, config.ProgramName, jobInfo.VolumeName, lockFilePath,
+		)
 		return lferr
 	}
-	defer lock.Unlock()
+	defer func() {
+		if err := lock.Unlock(); err != nil {
+			log.AppLogger.Warningf("Could not release lock %s: %v", lockFilePath, err)
+		}
+	}()
 
 	fileBufferSize := jobInfo.MaxFileBuffer
 	if fileBufferSize == 0 {
@@ -388,12 +404,21 @@ func Backup(pctx context.Context, jobInfo *files.JobInfo) error {
 			FilesUploaded    int
 		}{jobInfo.ZFSStreamBytes, totalWrittenBytes, time.Since(jobInfo.StartTime), len(jobInfo.Volumes) + 1}
 		if j, jerr := json.Marshal(doneOutput); jerr != nil {
-			log.AppLogger.Errorf("could not ouput json due to error - %v", jerr)
+			log.AppLogger.Errorf("could not output json due to error - %v", jerr)
 		} else {
 			fmt.Fprintf(config.Stdout, "%s", string(j))
 		}
 	} else {
-		fmt.Fprintf(config.Stdout, "Done.\n\tTotal ZFS Stream Bytes: %d (%s)\n\tTotal Bytes Written: %d (%s)\n\tElapsed Time: %v\n\tTotal Files Uploaded: %d", jobInfo.ZFSStreamBytes, humanize.IBytes(jobInfo.ZFSStreamBytes), totalWrittenBytes, humanize.IBytes(totalWrittenBytes), time.Since(jobInfo.StartTime), len(jobInfo.Volumes)+1)
+		fmt.Fprintf(
+			config.Stdout,
+			"Done.\n\tTotal ZFS Stream Bytes: %d (%s)\n\tTotal Bytes Written: %d (%s)\n\tElapsed Time: %v\n\tTotal Files Uploaded: %d",
+			jobInfo.ZFSStreamBytes,
+			humanize.IBytes(jobInfo.ZFSStreamBytes),
+			totalWrittenBytes,
+			humanize.IBytes(totalWrittenBytes),
+			time.Since(jobInfo.StartTime),
+			len(jobInfo.Volumes)+1,
+		)
 	}
 
 	log.AppLogger.Debugf("Cleaning up resources...")
@@ -418,6 +443,7 @@ func saveManifest(ctx context.Context, j *files.JobInfo, final bool) (*files.Vol
 		log.AppLogger.Errorf("Error trying to create manifest volume - %v", err)
 		return nil, err
 	}
+	// nolint:gosec // MD5 not used for cryptographic purposes here
 	safeManifestFile := fmt.Sprintf("%x", md5.Sum([]byte(manifest.ObjectName)))
 	manifest.IsFinalManifest = final
 	jsonEnc := json.NewEncoder(manifest)
@@ -434,6 +460,7 @@ func saveManifest(ctx context.Context, j *files.JobInfo, final bool) (*files.Vol
 		if destination == backends.DeleteBackendPrefix+"://" {
 			continue
 		}
+		// nolint:gosec // MD5 not used for cryptographic purposes here
 		safeFolder := fmt.Sprintf("%x", md5.Sum([]byte(destination)))
 		dest := filepath.Join(config.WorkingDir, "cache", safeFolder, safeManifestFile)
 		if err = manifest.CopyTo(dest); err != nil {
@@ -445,6 +472,7 @@ func saveManifest(ctx context.Context, j *files.JobInfo, final bool) (*files.Vol
 	return manifest, nil
 }
 
+// nolint:funlen,gocyclo // Difficult to break this apart
 func sendStream(ctx context.Context, j *files.JobInfo, c chan<- *files.VolumeInfo, buffer <-chan bool) error {
 	var group *errgroup.Group
 	group, ctx = errgroup.WithContext(ctx)
@@ -513,7 +541,6 @@ func sendStream(ctx context.Context, j *files.JobInfo, c chan<- *files.VolumeInf
 				// We are done!
 				log.AppLogger.Debugf("Finished creating volume %s", volume.ObjectName)
 				volume.ZFSStreamBytes = counter.Count() - lastTotalBytes
-				lastTotalBytes = counter.Count()
 				if err = volume.Close(); err != nil {
 					log.AppLogger.Errorf("Error while trying to close volume %s - %v", volume.ObjectName, err)
 					return err
@@ -581,33 +608,50 @@ func tryResume(ctx context.Context, j *files.JobInfo) error {
 		log.AppLogger.Errorf("Error trying to create manifest volume - %v", merr)
 		return merr
 	}
-	defer manifest.DeleteVolume()
-	defer manifest.Close()
+	defer func() {
+		if err := manifest.Close(); err != nil {
+			log.AppLogger.Warningf("Could not close the temporary manifest volume - %v", err)
+		}
+		if err := manifest.DeleteVolume(); err != nil {
+			log.AppLogger.Warningf("Could not delete the temporary manifest volume - %v", err)
+		}
+	}()
 
+	// nolint:gosec // MD5 not used for cryptographic purposes here
 	safeManifestFile := fmt.Sprintf("%x", md5.Sum([]byte(manifest.ObjectName)))
 
 	destination := j.Destinations[0]
-	safeFolder := fmt.Sprintf("%x", md5.Sum([]byte(destination)))
+	safeFolder := fmt.Sprintf("%x", md5.Sum([]byte(destination))) // nolint:gosec // MD5 not used for cryptographic purposes here
 	origManiPath := filepath.Join(config.WorkingDir, "cache", safeFolder, safeManifestFile)
 
-	if originalManifest, oerr := readManifest(ctx, origManiPath, j); os.IsNotExist(oerr) {
+	switch originalManifest, oerr := readManifest(ctx, origManiPath, j); {
+	case os.IsNotExist(oerr):
 		log.AppLogger.Info("No previous manifest file exists, nothing to resume")
-	} else if oerr != nil {
+	case oerr != nil:
 		log.AppLogger.Errorf("Could not open previous manifest file %s due to error: %v", origManiPath, oerr)
 		return oerr
-	} else {
+	default:
 		if originalManifest.Compressor != j.Compressor {
-			log.AppLogger.Errorf("Cannot resume backup, original compressor %s != compressor specified %s", originalManifest.Compressor, j.Compressor)
+			log.AppLogger.Errorf(
+				"Cannot resume backup, original compressor %s != compressor specified %s",
+				originalManifest.Compressor, j.Compressor,
+			)
 			return fmt.Errorf("option mismatch")
 		}
 
 		if originalManifest.EncryptTo != j.EncryptTo {
-			log.AppLogger.Errorf("Cannot resume backup, different encryptTo flags specified (original %v != current %v)", originalManifest.EncryptTo, j.EncryptTo)
+			log.AppLogger.Errorf(
+				"Cannot resume backup, different encryptTo flags specified (original %v != current %v)",
+				originalManifest.EncryptTo, j.EncryptTo,
+			)
 			return fmt.Errorf("option mismatch")
 		}
 
 		if originalManifest.SignFrom != j.SignFrom {
-			log.AppLogger.Errorf("Cannot resume backup, different signFrom flags specified (original %v != current %v)", originalManifest.SignFrom, j.SignFrom)
+			log.AppLogger.Errorf(
+				"Cannot resume backup, different signFrom flags specified (original %v != current %v)",
+				originalManifest.SignFrom, j.SignFrom,
+			)
 			return fmt.Errorf("option mismatch")
 		}
 
@@ -616,7 +660,10 @@ func tryResume(ctx context.Context, j *files.JobInfo) error {
 		oldCMDLine := strings.Join(currentCMD.Args, " ")
 		currentCMDLine := strings.Join(oldCMD.Args, " ")
 		if strings.Compare(oldCMDLine, currentCMDLine) != 0 {
-			log.AppLogger.Errorf("Cannot resume backup, different options given for zfs send command: `%s` != current `%s`", oldCMDLine, currentCMDLine)
+			log.AppLogger.Errorf(
+				"Cannot resume backup, different options given for zfs send command: `%s` != current `%s`",
+				oldCMDLine, currentCMDLine,
+			)
 			return fmt.Errorf("option mismatch")
 		}
 
@@ -629,7 +676,13 @@ func tryResume(ctx context.Context, j *files.JobInfo) error {
 	return nil
 }
 
-func retryUploadChainer(ctx context.Context, in <-chan *files.VolumeInfo, b backends.Backend, j *files.JobInfo, dest string) (<-chan *files.VolumeInfo, *errgroup.Group) {
+func retryUploadChainer(
+	ctx context.Context,
+	in <-chan *files.VolumeInfo,
+	b backends.Backend,
+	j *files.JobInfo,
+	dest string,
+) (<-chan *files.VolumeInfo, *errgroup.Group) {
 	out := make(chan *files.VolumeInfo)
 	parts := strings.Split(dest, "://")
 	prefix := parts[0]

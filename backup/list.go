@@ -22,7 +22,7 @@ package backup
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" // nolint:gosec // MD5 not used for cryptographic purposes here
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -39,6 +39,7 @@ import (
 // and then read and output the manifest information describing the backup sets
 // found in the target destination.
 // TODO: Group by volume name?
+// nolint:gocyclo // Difficult to break this up
 func List(pctx context.Context, jobInfo *files.JobInfo, startswith string, before, after time.Time) error {
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
@@ -134,7 +135,12 @@ func List(pctx context.Context, jobInfo *files.JobInfo, startswith string, befor
 	return nil
 }
 
-func readAndSortManifests(ctx context.Context, localCachePath string, manifests []string, jobInfo *files.JobInfo) ([]*files.JobInfo, error) {
+func readAndSortManifests(
+	ctx context.Context,
+	localCachePath string,
+	manifests []string,
+	jobInfo *files.JobInfo,
+) ([]*files.JobInfo, error) {
 	// Read in Manifests and display
 	decodedManifests := make([]*files.JobInfo, 0, len(manifests))
 	for _, manifest := range manifests {
@@ -153,7 +159,6 @@ func readAndSortManifests(ctx context.Context, localCachePath string, manifests 
 			return decodedManifests[i].BaseSnapshot.CreationTime.Before(decodedManifests[j].BaseSnapshot.CreationTime)
 		}
 		return cmp < 0
-
 	})
 
 	return decodedManifests, nil
@@ -169,7 +174,10 @@ func linkManifests(manifests []*files.JobInfo) map[string][]*files.JobInfo {
 	for idx := range manifests {
 		key := manifests[idx].VolumeName
 
-		manifestID := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s%s%v", key, manifests[idx].BaseSnapshot.Name, manifests[idx].BaseSnapshot.CreationTime))))
+		// nolint:gosec // MD5 not used for cryptographic purposes here
+		manifestID := fmt.Sprintf("%x", md5.Sum([]byte(
+			fmt.Sprintf("%s%s%v", key, manifests[idx].BaseSnapshot.Name, manifests[idx].BaseSnapshot.CreationTime),
+		)))
 
 		manifestTree[key] = append(manifestTree[key], manifests[idx])
 
@@ -190,14 +198,16 @@ func linkManifests(manifests []*files.JobInfo) map[string][]*files.JobInfo {
 				// Full backup, no parent
 				continue
 			}
-			manifestID := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s%s%v", val.VolumeName, val.IncrementalSnapshot.Name, val.IncrementalSnapshot.CreationTime))))
+			// nolint:gosec // MD5 not used for cryptographic purposes here
+			manifestID := fmt.Sprintf("%x", md5.Sum([]byte(
+				fmt.Sprintf("%s%s%v", val.VolumeName, val.IncrementalSnapshot.Name, val.IncrementalSnapshot.CreationTime),
+			)))
 			if psnap, ok := manifestsByID[manifestID]; ok {
 				val.ParentSnap = psnap
 			} else {
 				log.AppLogger.Warningf("Could not find matching parent for %v", val)
 			}
 		}
-
 	}
 	return manifestTree
 }

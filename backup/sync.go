@@ -22,7 +22,7 @@ package backup
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" // nolint:gosec // MD5 not used for cryptographic purposes here
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -58,6 +58,7 @@ func prepareBackend(ctx context.Context, j *files.JobInfo, backendURI string, up
 }
 
 func getCacheDir(backendURI string) (string, error) {
+	// nolint:gosec // MD5 not used for cryptographic purposes here
 	safeFolder := fmt.Sprintf("%x", md5.Sum([]byte(backendURI)))
 	dest := filepath.Join(config.WorkingDir, "cache", safeFolder)
 	oerr := os.MkdirAll(dest, os.ModePerm)
@@ -79,30 +80,33 @@ func syncCache(ctx context.Context, j *files.JobInfo, localCache string, backend
 	// Make it safe for local file system storage
 	safeManifests := make([]string, len(manifests))
 	for idx := range manifests {
+		// nolint:gosec // MD5 not used for cryptographic purposes here
 		safeManifests[idx] = fmt.Sprintf("%x", md5.Sum([]byte(manifests[idx])))
 	}
 
 	// Check what manifests we have locally, and if we are missing any, download them
-	files, ferr := ioutil.ReadDir(localCache)
+	manifestFiles, ferr := ioutil.ReadDir(localCache)
 	if ferr != nil {
 		return nil, nil, fmt.Errorf("could not list files from the local cache dir due to error - %v", ferr)
 	}
 
 	var localOnlyFiles []string
 	var foundFiles []string
-	for _, file := range files {
+	for _, file := range manifestFiles {
 		if file.IsDir() {
 			continue
 		}
 		found := false
 		for idx := range manifests {
-			if strings.Compare(file.Name(), safeManifests[idx]) == 0 {
-				found = true
-				foundFiles = append(foundFiles, safeManifests[idx])
-				manifests = append(manifests[:idx], manifests[idx+1:]...)
-				safeManifests = append(safeManifests[:idx], safeManifests[idx+1:]...)
-				break
+			if strings.Compare(file.Name(), safeManifests[idx]) != 0 {
+				continue
 			}
+
+			found = true
+			foundFiles = append(foundFiles, safeManifests[idx])
+			manifests = append(manifests[:idx], manifests[idx+1:]...)
+			safeManifests = append(safeManifests[:idx], safeManifests[idx+1:]...)
+			break
 		}
 		if !found {
 			localOnlyFiles = append(localOnlyFiles, file.Name())
@@ -119,7 +123,9 @@ func syncCache(ctx context.Context, j *files.JobInfo, localCache string, backend
 
 		// manifests should only contain what we don't have locally
 		for idx, manifest := range manifests {
-			downloadTo(ctx, backend, manifest, filepath.Join(localCache, safeManifests[idx]))
+			if err := downloadTo(ctx, backend, manifest, filepath.Join(localCache, safeManifests[idx])); err != nil {
+				return nil, nil, err
+			}
 		}
 	}
 
@@ -128,6 +134,7 @@ func syncCache(ctx context.Context, j *files.JobInfo, localCache string, backend
 	return safeManifests, localOnlyFiles, nil
 }
 
+// nolint:unparam // Some errors are not ok to ignore
 func validateSnapShotExists(ctx context.Context, snapshot *files.SnapshotInfo, target string, includeBookmarks bool) (bool, error) {
 	snapshots, err := zfs.GetSnapshotsAndBookmarks(ctx, target)
 	if err != nil {

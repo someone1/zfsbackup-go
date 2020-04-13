@@ -24,8 +24,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/hex"
-	"errors"
 	"io"
 	"io/ioutil"
 	"os"
@@ -34,10 +32,6 @@ import (
 
 	"github.com/someone1/zfsbackup-go/backends"
 	"github.com/someone1/zfsbackup-go/files"
-)
-
-var (
-	errTest = errors.New("testing error")
 )
 
 // Truly a useless backend
@@ -69,15 +63,7 @@ func (m *mockBackend) Delete(ctx context.Context, filename string) error { retur
 
 type errTestFunc func(error) bool
 
-func nilErrTest(e error) bool              { return e == nil }
-func errTestErrTest(e error) bool          { return e == errTest }
-func errInvalidPrefixErrTest(e error) bool { return e == backends.ErrInvalidPrefix }
-func errInvalidURIErrTest(e error) bool    { return e == backends.ErrInvalidURI }
-func nonNilErrTest(e error) bool           { return e != nil }
-func invalidByteErrTest(e error) bool {
-	_, ok := e.(hex.InvalidByteError)
-	return ok
-}
+func nilErrTest(e error) bool { return e == nil }
 
 func TestRetryUploadChainer(t *testing.T) {
 	_, goodVol, badVol, err := prepareTestVols()
@@ -127,7 +113,7 @@ func TestRetryUploadChainer(t *testing.T) {
 	}
 }
 
-func prepareTestVols() (payload []byte, goodVol *files.VolumeInfo, badVol *files.VolumeInfo, err error) {
+func prepareTestVols() (payload []byte, goodVol, badVol *files.VolumeInfo, err error) {
 	payload = make([]byte, 10*1024*1024)
 	if _, err = rand.Read(payload); err != nil {
 		return
@@ -157,5 +143,5 @@ func prepareTestVols() (payload []byte, goodVol *files.VolumeInfo, badVol *files
 
 	err = badVol.DeleteVolume()
 
-	return
+	return payload, goodVol, badVol, err
 }

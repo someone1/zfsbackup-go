@@ -23,8 +23,8 @@ package files
 import (
 	"bufio"
 	"context"
-	"crypto/md5"
-	"crypto/sha1"
+	"crypto/md5"  // nolint:gosec // MD5 not used for cryptographic purposes here
+	"crypto/sha1" // nolint:gosec // SHA1 not used for cryptographic purposes here
 	"crypto/sha256"
 	"fmt"
 	"hash"
@@ -241,7 +241,9 @@ func (v *VolumeInfo) Extract(ctx context.Context, j *JobInfo, isManifest bool) e
 		v.r = v.rw
 		v.cmd.Stderr = os.Stderr
 
-		v.cmd.Start()
+		if err := v.cmd.Start(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -261,6 +263,7 @@ func (v *VolumeInfo) Write(p []byte) (int, error) {
 }
 
 // Close should be called after creating a new volume or after calling OpenVolume
+// nolint:funlen,gocyclo // Difficult to break this apart
 func (v *VolumeInfo) Close() error {
 	// Protect against multiple calls to this function
 	v.lock.Lock()
@@ -403,7 +406,7 @@ func (v *VolumeInfo) CopyTo(dest string) (err error) {
 
 // prepareVolume returns a VolumeInfo, filename parts, extension parts, and an error
 // compress -> encrypt/sign -> output
-func prepareVolume(ctx context.Context, j *JobInfo, pipe bool, isManifest bool) (*VolumeInfo, []string, []string, error) {
+func prepareVolume(ctx context.Context, j *JobInfo, pipe, isManifest bool) (*VolumeInfo, []string, []string, error) {
 	v, err := CreateSimpleVolume(ctx, pipe)
 	if err != nil {
 		return nil, nil, nil, err
@@ -460,7 +463,10 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe bool, isManifest bool) 
 		v.cmd.Stderr = os.Stderr
 
 		printCompressCMD.Do(func() {
-			log.AppLogger.Infof("Will be using the external binary %s for compression with compression level %d. The executing command will be: %s", j.Compressor, j.CompressionLevel, strings.Join(v.cmd.Args, " "))
+			log.AppLogger.Infof(
+				"Will be using the external binary %s for compression with compression level %d. The executing command will be: %s",
+				j.Compressor, j.CompressionLevel, strings.Join(v.cmd.Args, " "),
+			)
 		})
 
 		err = v.cmd.Start()
@@ -536,8 +542,8 @@ func CreateSimpleVolume(ctx context.Context, pipe bool) (*VolumeInfo, error) {
 	v := &VolumeInfo{
 		SHA256:     sha256.New(),
 		CRC32C:     crc32.New(crc32.MakeTable(crc32.Castagnoli)),
-		MD5:        md5.New(),
-		SHA1:       sha1.New(),
+		MD5:        md5.New(),  // nolint:gosec // MD5 not used for cryptographic purposes here
+		SHA1:       sha1.New(), // nolint:gosec // SHA1 not used for cryptographic purposes here
 		CreateTime: time.Now(),
 	}
 

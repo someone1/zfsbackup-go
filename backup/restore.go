@@ -22,7 +22,7 @@ package backup
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" // nolint:gosec // MD5 not used for cryptographic purposes here
 	"errors"
 	"fmt"
 	"io"
@@ -49,6 +49,7 @@ type downloadSequence struct {
 
 // AutoRestore will compute which snapshots need to be restored to get to the snapshot provided,
 // or to the latest snapshot of the volume provided
+// nolint:funlen,gocyclo // Difficult to break this up
 func AutoRestore(pctx context.Context, jobInfo *files.JobInfo) error {
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
@@ -140,7 +141,7 @@ func AutoRestore(pctx context.Context, jobInfo *files.JobInfo) error {
 			snapshots = append(snapshots, originSnapshot[0])
 		} else {
 			log.AppLogger.Errorf("Could not find origin snapshot %s", jobInfo.Origin)
-			return fmt.Errorf("Could not find origin snapshot %s", jobInfo.Origin)
+			return fmt.Errorf("could not find origin snapshot %s", jobInfo.Origin)
 		}
 	}
 
@@ -157,7 +158,10 @@ func AutoRestore(pctx context.Context, jobInfo *files.JobInfo) error {
 			break
 		}
 		if jobToRestore.ParentSnap == nil {
-			log.AppLogger.Errorf("Want to restore parent snap %s but it is not found in the backend, aborting.", jobToRestore.IncrementalSnapshot.Name)
+			log.AppLogger.Errorf(
+				"Want to restore parent snap %s but it is not found in the backend, aborting.",
+				jobToRestore.IncrementalSnapshot.Name,
+			)
 			return errors.New("could not find parent snapshot")
 		}
 		jobToRestore = jobToRestore.ParentSnap
@@ -185,6 +189,7 @@ func AutoRestore(pctx context.Context, jobInfo *files.JobInfo) error {
 }
 
 // Receive will download and restore the backup job described to the Volume target provided.
+// nolint:funlen,gocyclo // Difficult to break this up
 func Receive(pctx context.Context, jobInfo *files.JobInfo) error {
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
@@ -245,8 +250,13 @@ func Receive(pctx context.Context, jobInfo *files.JobInfo) error {
 		log.AppLogger.Errorf("Error trying to create manifest volume - %v", err)
 		return err
 	}
-	tempManifest.Close()
-	tempManifest.DeleteVolume()
+	if err = tempManifest.Close(); err != nil {
+		log.AppLogger.Warningf("Could not close temporary manifest %v", err)
+	}
+	if err = tempManifest.DeleteVolume(); err != nil {
+		log.AppLogger.Warningf("Could not delete temporary manifest %v", err)
+	}
+	// nolint:gosec // MD5 not used for cryptographic purposes here
 	safeManifestFile := fmt.Sprintf("%x", md5.Sum([]byte(tempManifest.ObjectName)))
 	safeManifestPath := filepath.Join(localCachePath, safeManifestFile)
 
@@ -254,13 +264,14 @@ func Receive(pctx context.Context, jobInfo *files.JobInfo) error {
 	manifest, err := readManifest(ctx, safeManifestPath, jobInfo)
 	if err != nil {
 		if os.IsNotExist(err) {
-			err = backend.PreDownload(ctx, []string{tempManifest.ObjectName})
-			if err != nil {
-				log.AppLogger.Errorf("Error trying to pre download manifest volume %s - %v", tempManifest.ObjectName, err)
-				return err
+			if bErr := backend.PreDownload(ctx, []string{tempManifest.ObjectName}); bErr != nil {
+				log.AppLogger.Errorf("Error trying to pre download manifest volume %s - %v", tempManifest.ObjectName, bErr)
+				return bErr
 			}
 			// Try and download the manifest file from the backend
-			downloadTo(ctx, backend, tempManifest.ObjectName, safeManifestPath)
+			if dErr := downloadTo(ctx, backend, tempManifest.ObjectName, safeManifestPath); dErr != nil {
+				return dErr
+			}
 			manifest, err = readManifest(ctx, safeManifestPath, jobInfo)
 		}
 		if err != nil {
@@ -406,8 +417,12 @@ func processSequence(ctx context.Context, sequence downloadSequence, backend bac
 	_, err = io.Copy(vol, r)
 	if err != nil {
 		log.AppLogger.Noticef("Could not download file %s to the local cache dir due to error - %v.", sequence.volume.ObjectName, err)
-		vol.Close()
-		vol.DeleteVolume()
+		if err = vol.Close(); err != nil {
+			log.AppLogger.Warningf("Could not close volume %s due to error - %v", sequence.volume.ObjectName, err)
+		}
+		if err = vol.DeleteVolume(); err != nil {
+			log.AppLogger.Warningf("Could not delete volume %s due to error - %v", sequence.volume.ObjectName, err)
+		}
 		if usePipe {
 			return backoff.Permanent(fmt.Errorf("cannot retry when using no file buffer, aborting"))
 		}
@@ -420,12 +435,20 @@ func processSequence(ctx context.Context, sequence downloadSequence, backend bac
 
 	// Verify the SHA256 Hash, if it doesn't match, ditch it!
 	if vol.SHA256Sum != sequence.volume.SHA256Sum {
-		log.AppLogger.Infof("Hash mismatch for %s, got %s but expected %s. Retrying.", sequence.volume.ObjectName, vol.SHA256Sum, sequence.volume.SHA256Sum)
+		log.AppLogger.Infof(
+			"Hash mismatch for %s, got %s but expected %s. Retrying.",
+			sequence.volume.ObjectName, vol.SHA256Sum, sequence.volume.SHA256Sum,
+		)
 		if usePipe {
 			return backoff.Permanent(fmt.Errorf("cannot retry when using no file buffer, aborting"))
 		}
-		vol.DeleteVolume()
-		return fmt.Errorf("SHA256 hash mismatch for %s, got %s but expected %s", sequence.volume.ObjectName, vol.SHA256Sum, sequence.volume.SHA256Sum)
+		if err = vol.DeleteVolume(); err != nil {
+			log.AppLogger.Noticef("Could not delete temporary file to download %s due to error - %v.", sequence.volume.ObjectName, err)
+		}
+		return fmt.Errorf(
+			"SHA256 hash mismatch for %s, got %s but expected %s",
+			sequence.volume.ObjectName, vol.SHA256Sum, sequence.volume.SHA256Sum,
+		)
 	}
 	log.AppLogger.Debugf("Downloaded %s.", sequence.volume.ObjectName)
 
@@ -487,8 +510,12 @@ func receiveStream(ctx context.Context, cmd *exec.Cmd, j *files.JobInfo, c <-cha
 					log.AppLogger.Errorf("Error while trying to read from volume %s - %v", vol.ObjectName, eerr)
 					return eerr
 				}
-				vol.Close()
-				vol.DeleteVolume()
+				if err = vol.Close(); err != nil {
+					log.AppLogger.Warningf("Could not close volume %s due to error - %v", vol.ObjectName, err)
+				}
+				if err = vol.DeleteVolume(); err != nil {
+					log.AppLogger.Warningf("Could not delete volume %s due to error - %v", vol.ObjectName, err)
+				}
 				log.AppLogger.Debugf("Processed %s.", vol.ObjectName)
 				vol = nil
 				<-buffer

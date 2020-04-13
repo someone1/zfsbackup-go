@@ -22,7 +22,7 @@ package backup
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" // nolint:gosec // MD5 not used for cryptographic purposes here
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,6 +39,7 @@ import (
 // Clean will remove files found in the desination that are not found in any of the manifests found locally or in the destination.
 // If cleanLocal is true, then local manifests not found in the destination are ignored and deleted. This function will optionally
 // delete broken backup sets in the destination if the --force flag is provided.
+// nolint:funlen,gocyclo // Difficult to break this up
 func Clean(pctx context.Context, jobInfo *files.JobInfo, cleanLocal bool) error {
 	ctx, cancel := context.WithCancel(pctx)
 	defer cancel()
@@ -80,7 +81,11 @@ func Clean(pctx context.Context, jobInfo *files.JobInfo, cleanLocal bool) error 
 
 	if !cleanLocal {
 		if len(localOnlyFiles) > 0 {
-			log.AppLogger.Noticef("There are %d local manifests not found in the destination, use --cleanLocal to delete these locally and any of their volumes found in the destination.", len(localOnlyFiles))
+			// nolint:lll // Long log message
+			log.AppLogger.Noticef(
+				"There are %d local manifests not found in the destination, use --cleanLocal to delete these locally and any of their volumes found in the destination.",
+				len(localOnlyFiles),
+			)
 			for _, manifest := range localOnlyFiles {
 				manifestPath := filepath.Join(localCachePath, manifest)
 				decodedManifest, oerr := readManifest(ctx, manifestPath, jobInfo)
@@ -133,7 +138,10 @@ func Clean(pctx context.Context, jobInfo *files.JobInfo, cleanLocal bool) error 
 			if !found {
 				// Broken backup set! inform the user!
 				if jobInfo.Force {
-					log.AppLogger.Warningf("The following backup set is missing volume %s. Removing entire backupset:\n\n%s", vol.ObjectName, manifest.String())
+					log.AppLogger.Warningf(
+						"The following backup set is missing volume %s. Removing entire backupset:\n\n%s",
+						vol.ObjectName, manifest.String(),
+					)
 
 					// Compute the manifest object name and cache name to delete
 					manifest.ManifestPrefix = jobInfo.ManifestPrefix
@@ -145,8 +153,13 @@ func Clean(pctx context.Context, jobInfo *files.JobInfo, cleanLocal bool) error 
 						return terr
 					}
 					allObjects = append(allObjects, tempManifest.ObjectName)
-					tempManifest.Close()
-					tempManifest.DeleteVolume()
+					if err = tempManifest.Close(); err != nil {
+						log.AppLogger.Warningf("Could not close temporary manifest %v", err)
+					}
+					if err = tempManifest.DeleteVolume(); err != nil {
+						log.AppLogger.Warningf("Could not delete temporary manifest %v", err)
+					}
+					// nolint:gosec // MD5 not used for cryptographic purposes here
 					manifestPath := filepath.Join(localCachePath, fmt.Sprintf("%x", md5.Sum([]byte(tempManifest.ObjectName))))
 					err = os.Remove(manifestPath)
 					if err != nil {
@@ -159,7 +172,10 @@ func Clean(pctx context.Context, jobInfo *files.JobInfo, cleanLocal bool) error 
 					}
 					break
 				} else {
-					log.AppLogger.Warningf("The following backup set is missing volume %s:\n\n%s\n\nPass the --force flag to delete this backup set.", vol.ObjectName, manifest.String())
+					log.AppLogger.Warningf(
+						"The following backup set is missing volume %s:\n\n%s\n\nPass the --force flag to delete this backup set.",
+						vol.ObjectName, manifest.String(),
+					)
 				}
 			}
 		}

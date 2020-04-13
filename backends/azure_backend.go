@@ -23,7 +23,7 @@ package backends
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
+	"crypto/md5" // nolint:gosec // MD5 not used for crytopgrahic purposes
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -41,8 +41,6 @@ import (
 	"github.com/someone1/zfsbackup-go/files"
 	"github.com/someone1/zfsbackup-go/log"
 )
-
-// Keep an eye on the Azure Go SDK, apparently there's a rewrite in progress: https://github.com/Azure/azure-sdk-for-go/issues/626#issuecomment-324398278
 
 // AzureBackendPrefix is the URI prefix used for the AzureBackend.
 const (
@@ -184,6 +182,7 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error 
 
 		readBytes += uint64(n)
 		if n > 0 {
+			// nolint:gosec // MD5 not used for crytopgraphic purposes
 			md5sum := md5.Sum(buf[:n])
 
 			select {

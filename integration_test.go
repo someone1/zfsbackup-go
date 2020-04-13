@@ -314,23 +314,24 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 
 		cmd.ResetReceiveJobInfo()
 
+		// nolint:gosec // The input is safe
 		diffCmd := exec.Command("diff", "-rq", "/tank/data", "/"+target)
 		err := diffCmd.Run()
 		if err != nil {
 			t.Fatalf("unexpected difference comparing the restored backup %s: %v", target, err)
 		}
 
-		// Re-enable test when we get ZoL >= v0.7.0-rc5 on travis ci VM
-		// cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "--auto", "-o", "origin=tank/data@b", "tank/data", bucket, target+"origin"})
-		// if err = cmd.RootCmd.Execute(); err != nil {
-		// 	t.Fatalf("error performing receive: %v", err)
-		// }
+		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "--auto", "-o", "origin=tank/data@b", "tank/data", bucket, target + "origin"})
+		if err = cmd.RootCmd.Execute(); err != nil {
+			t.Fatalf("error performing receive: %v", err)
+		}
 
-		// diffCmd = exec.Command("diff", "-rq", "/tank/data", target+"origin")
-		// err = diffCmd.Run()
-		// if err != nil {
-		// 	t.Fatalf("unexpected difference comparing the restored backup %sorigin: %v", err, target)
-		// }
+		// nolint:gosec // The input is safe
+		diffCmd = exec.Command("diff", "-rq", "/tank/data", target+"origin")
+		err = diffCmd.Run()
+		if err != nil {
+			t.Fatalf("unexpected difference comparing the restored backup %sorigin: %v", err, target)
+		}
 	}
 }
 
@@ -348,7 +349,7 @@ func TestEncryption(t *testing.T) {
 	)
 
 	// Manual Full Backup
-	cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--workingDirectory", "./scratch", "--secretKeyRingPath", "private.pgp", "--publicKeyRingPath", "public.pgp", "--encryptTo", user, "tank/data@a", target})
+	cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--workingDirectory", "./scratch", "--publicKeyRingPath", "public.pgp", "--encryptTo", user, "tank/data@a", target})
 	if err := cmd.RootCmd.Execute(); err != nil {
 		t.Fatalf("error performing backup: %v", err)
 	}
@@ -364,7 +365,7 @@ func TestEncryption(t *testing.T) {
 	// Restore success
 	cmd.ResetReceiveJobInfo()
 
-	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--workingDirectory", "./scratch", "--secretKeyRingPath", "private.pgp", "--publicKeyRingPath", "public.pgp", "--encryptTo", user, "-F", "tank/data@a", target, "tank/data2"})
+	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--workingDirectory", "./scratch", "--secretKeyRingPath", "private.pgp", "--encryptTo", user, "-F", "tank/data@a", target, "tank/data2"})
 	if err := cmd.RootCmd.Execute(); err != nil {
 		t.Fatalf("error performing receive: %v", err)
 	}

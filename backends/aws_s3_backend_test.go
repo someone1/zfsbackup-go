@@ -40,6 +40,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
+
 	"github.com/someone1/zfsbackup-go/files"
 )
 
@@ -58,7 +59,10 @@ var (
 	s3BadKey    = "badkey"
 )
 
-const s3TestBucketName = "s3bucketbackendtest"
+const (
+	s3TestBucketName = "s3bucketbackendtest"
+	alreadyRestoring = "alreadyrestoring"
+)
 
 func (m *mockS3Client) DeleteObjectWithContext(
 	ctx aws.Context,
@@ -129,7 +133,7 @@ func (m *mockS3Client) HeadObjectWithContext(ctx aws.Context, in *s3.HeadObjectI
 	switch *in.Key {
 	case s3BadKey:
 		return nil, errTest
-	case "alreadyrestoring":
+	case alreadyRestoring:
 		m.headcallcount++
 		restoreString := "ongoing-request=\"true\""
 		if m.headcallcount >= 3 {
@@ -158,7 +162,7 @@ func (m *mockS3Client) RestoreObjectWithContext(ctx aws.Context, in *s3.RestoreO
 	switch *in.Key {
 	case s3BadKey:
 		return nil, errTest
-	case "alreadyrestoring":
+	case alreadyRestoring:
 		return nil, awserr.New("RestoreAlreadyInProgress", "", errTest)
 	}
 	return nil, nil
@@ -447,7 +451,7 @@ func TestS3PreDownload(t *testing.T) {
 				TargetURI: AWSS3BackendPrefix + "://goodbucket",
 			},
 			errTest: nilErrTest,
-			keys:    []string{"good", "needsrestore", "alreadyrestoring"},
+			keys:    []string{"good", "needsrestore", alreadyRestoring},
 		},
 		{
 			conf: &BackendConfig{

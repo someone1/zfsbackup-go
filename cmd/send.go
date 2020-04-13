@@ -78,7 +78,7 @@ func init() {
 	sendCmd.Flags().BoolVarP(&jobInfo.Properties, "properties", "p", false, "See the -p flag on zfs send for more information.")
 
 	// Specific to download only
-	sendCmd.Flags().Uint64Var(&jobInfo.VolumeSize, "volsize", 200, "the maximum size (in MiB) a volume should be before splitting to a new volume. Note: zfsbackup will try its best to stay close/under this limit but it is not garaunteed.")
+	sendCmd.Flags().Uint64Var(&jobInfo.VolumeSize, "volsize", 200, "the maximum size (in MiB) a volume should be before splitting to a new volume. Note: zfsbackup will try its best to stay close/under this limit but it is not guaranteed.")
 	sendCmd.Flags().IntVar(&jobInfo.CompressionLevel, "compressionLevel", 6, "the compression level to use with the compressor. Valid values are between 1-9.")
 	sendCmd.Flags().BoolVar(&jobInfo.Resume, "resume", false, "set this flag to true when you want to try and resume a previously cancled or failed backup. It is up to the caller to ensure the same command line arguments are provided between the original backup and the resumed one.")
 	sendCmd.Flags().BoolVar(&jobInfo.Full, "full", false, "set this flag to take a full backup of the specified volume using the most recent snapshot.")

@@ -60,7 +60,9 @@ the runtime and architecture.`,
 			}
 			output = string(j)
 		} else {
-			output = fmt.Sprintf("\tProgram Name:\t%s\n\tVersion:\tv%s\n\tOS Target:\t%s\n\tArch Target:\t%s\n\tCompiled With:\t%s\n\tGo Version:\t%s", config.ProgramName, config.Version(), runtime.GOOS, runtime.GOARCH, runtime.Compiler, runtime.Version())
+			output = fmt.Sprintf(
+				"\tProgram Name:\t%s\n\tVersion:\tv%s\n\tOS Target:\t%s\n\tArch Target:\t%s\n\tCompiled With:\t%s\n\tGo Version:\t%s",
+				config.ProgramName, config.Version(), runtime.GOOS, runtime.GOARCH, runtime.Compiler, runtime.Version())
 		}
 		fmt.Fprintln(config.Stdout, output)
 		return nil

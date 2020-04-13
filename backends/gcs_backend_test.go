@@ -434,7 +434,9 @@ func TestGCSUpload(t *testing.T) {
 		if err := b.Init(context.Background(), c.conf, WithGCSClient(c.client)); err != nil {
 			t.Errorf("%d: error setting up backend - %v", idx, err)
 		} else {
-			goodvol.Seek(0, io.SeekStart)
+			if _, err := goodvol.Seek(0, io.SeekStart); err != nil {
+				t.Errorf("%d: could not seek - %v", idx, err)
+			}
 			readVerify.Reset()
 			if errResult := b.Upload(context.Background(), c.vol); !c.errTest(errResult) {
 				t.Errorf("%d: Unexpected error, got %v", idx, errResult)

@@ -22,7 +22,7 @@ before_install:
   - export PATH=/usr/lib/ccache:$PATH
   - export GOPATH=$HOME/go
   - sudo apt-get -qq update
-  - sudo apt-get install -y linux-headers-`uname -r` tree uuid-dev libattr1-dev libblkid-dev
+  - sudo apt-get install -y linux-headers-`uname -r` tree uuid-dev libattr1-dev libblkid-dev jq gnupg xz gzip
   - mkdir -p $HOME/zfs
   - cd $HOME/zfs
   - "[[ $spl == "true" ]] && [[ -d spl-$rel.tar.gz ]] || curl -L https://github.com/zfsonlinux/zfs/releases/download/zfs-$rel/spl-$rel.tar.gz | tar xz"
@@ -31,7 +31,7 @@ before_install:
   - (cd zfs-$rel && ./configure --prefix=/usr && make && sudo make install)
   - sudo modprobe zfs
   - cd $TRAVIS_BUILD_DIR
-  - source ./travis-setup.sh
+  - chmod +x ./travis-setup.sh && ./travis-setup.sh
 
 install:
   - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.24.0
@@ -40,11 +40,13 @@ install:
   - make get
 
 script:
-  - make lint build
   - sudo -E $(which go) test -race -v -coverprofile=coverage.out -covermode=atomic -coverpkg=$(go list ./... | grep -v '/vendor/' | paste -sd, -) ./...
-  - source ./integration_test.sh
+  - make build
+  - chmod +x ./integration_test.sh && ./integration_test.sh
+  - make lint
 
 after_success:
   - sudo -E $GOPATH/bin/goveralls -coverprofile=coverage.out -service=travis-ci
 
-after_script: source ./travis-teardown.sh
+after_script: 
+  - chmod + x ./travis-teardown.sh && ./travis-teardown.sh

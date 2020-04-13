@@ -115,17 +115,28 @@ func (j *JobInfo) TotalBytesWritten() uint64 {
 // String will return a string representation of this JobInfo.
 func (j *JobInfo) String() string {
 	var output []string
-	output = append(output, fmt.Sprintf("Volume: %s", j.VolumeName))
-	output = append(output, fmt.Sprintf("Snapshot: %s (%v)", j.BaseSnapshot.Name, j.BaseSnapshot.CreationTime))
+	output = append(
+		output,
+		fmt.Sprintf("Volume: %s", j.VolumeName),
+		fmt.Sprintf("Snapshot: %s (%v)", j.BaseSnapshot.Name, j.BaseSnapshot.CreationTime),
+	)
 	if j.IncrementalSnapshot.Name != "" {
-		output = append(output, fmt.Sprintf("Incremental From Snapshot: %s (%v)", j.IncrementalSnapshot.Name, j.IncrementalSnapshot.CreationTime))
-		output = append(output, fmt.Sprintf("Intermediary: %v", j.IntermediaryIncremental))
+		output = append(
+			output,
+			fmt.Sprintf("Incremental From Snapshot: %s (%v)", j.IncrementalSnapshot.Name, j.IncrementalSnapshot.CreationTime),
+			fmt.Sprintf("Intermediary: %v", j.IntermediaryIncremental),
+		)
 	}
-	output = append(output, fmt.Sprintf("Replication: %v", j.Replication))
+
 	totalWrittenBytes := j.TotalBytesWritten()
-	output = append(output, fmt.Sprintf("Archives: %d - %d bytes (%s)", len(j.Volumes), totalWrittenBytes, humanize.IBytes(totalWrittenBytes)))
-	output = append(output, fmt.Sprintf("Volume Size (Raw): %d bytes (%s)", j.ZFSStreamBytes, humanize.IBytes(j.ZFSStreamBytes)))
-	output = append(output, fmt.Sprintf("Uploaded: %v (took %v)\n\n", j.StartTime, j.EndTime.Sub(j.StartTime)))
+
+	output = append(
+		output,
+		fmt.Sprintf("Replication: %v", j.Replication),
+		fmt.Sprintf("Archives: %d - %d bytes (%s)", len(j.Volumes), totalWrittenBytes, humanize.IBytes(totalWrittenBytes)),
+		fmt.Sprintf("Volume Size (Raw): %d bytes (%s)", j.ZFSStreamBytes, humanize.IBytes(j.ZFSStreamBytes)),
+		fmt.Sprintf("Uploaded: %v (took %v)\n\n", j.StartTime, j.EndTime.Sub(j.StartTime)),
+	)
 	return strings.Join(output, "\n\t")
 }
 
