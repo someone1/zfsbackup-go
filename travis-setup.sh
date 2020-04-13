@@ -42,6 +42,6 @@ cat >test <<EOF
      %commit
      %echo done
 EOF
-gpg --batch --generate-key test
-gpg --output public.pgp --armor --export test@example.com
-gpg --output private.pgp --armor --export-secret-key test@example.com
+gpg2 --batch --generate-key test
+gpg2 --output public.pgp --armor --export test@example.com
+gpg2 --output private.pgp --armor --export-secret-key test@example.com

@@ -83,14 +83,27 @@ func TestAzureBackend(t *testing.T) {
 		t.Fatalf("error while creating bucket: %v", err)
 	}
 
-	defer containerSvc.Delete(ctx, azblob.ContainerAccessConditions{})
+	defer func() {
+		if _, err := containerSvc.Delete(ctx, azblob.ContainerAccessConditions{}); err != nil {
+			t.Logf("could not delete container: %v", err)
+		}
+	}()
 
 	testPayLoad, goodVol, badVol, perr := prepareTestVols()
 	if perr != nil {
 		t.Fatalf("Error while creating test volumes: %v", perr)
 	}
-	defer goodVol.DeleteVolume()
-	defer badVol.DeleteVolume()
+	defer func() {
+		if err := goodVol.DeleteVolume(); err != nil {
+			t.Errorf("could not delete good vol - %v", err)
+		}
+	}()
+
+	defer func() {
+		if err := badVol.DeleteVolume(); err != nil {
+			t.Errorf("could not delete bad vol - %v", err)
+		}
+	}()
 
 	t.Run("Init", func(t *testing.T) {
 		// Bad TargetURI
@@ -234,7 +247,7 @@ func TestAzureBackend(t *testing.T) {
 			t.Errorf("Expected container mismatch error initilazing AzureBackend w/ SAS URI, got %v", err)
 		}
 
-		// Should recieve a ResourceNotFound error if we actually try a valid init
+		// Should receive a ResourceNotFound error if we actually try a valid init
 		conf = &BackendConfig{
 			TargetURI:               AzureBackendPrefix + "://" + azureTestBucketName,
 			UploadChunkSize:         8 * 1024 * 1024,

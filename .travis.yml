@@ -22,12 +22,12 @@ before_install:
   - export PATH=/usr/lib/ccache:$PATH
   - export GOPATH=$HOME/go
   - sudo apt-get -qq update
-  - sudo apt-get install -y linux-headers-`uname -r` tree uuid-dev libattr1-dev libblkid-dev jq gnupg xz gzip
+  - sudo apt-get install -y linux-headers-`uname -r` tree uuid-dev libattr1-dev libblkid-dev jq gnupg2 xz-utils gzip
   - mkdir -p $HOME/zfs
   - cd $HOME/zfs
-  - "[[ $spl == 'true' ]] && [[ -d spl-$rel.tar.gz ]] || curl -L https://github.com/zfsonlinux/zfs/releases/download/zfs-$rel/spl-$rel.tar.gz | tar xz"
+  - "[[ $spl == \"true\" ]] && [[ -d spl-$rel.tar.gz ]] || curl -L https://github.com/zfsonlinux/zfs/releases/download/zfs-$rel/spl-$rel.tar.gz | tar xz"
   - "[[ -d zfs-$rel.tar.gz ]] || curl -L https://github.com/zfsonlinux/zfs/releases/download/zfs-$rel/zfs-$rel.tar.gz | tar xz"
-  - "[[ $spl == 'true' ]] && (cd spl-$rel && ./configure --prefix=/usr && make && sudo make install)"
+  - "[[ $spl == \"true\" ]] && (cd spl-$rel && ./configure --prefix=/usr && make && sudo make install)"
   - (cd zfs-$rel && ./configure --prefix=/usr && make && sudo make install)
   - sudo modprobe zfs
   - cd $TRAVIS_BUILD_DIR

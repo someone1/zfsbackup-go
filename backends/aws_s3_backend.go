@@ -22,7 +22,7 @@ package backends
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // MD5 not used cryptographically here
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -70,8 +70,7 @@ func (l logger) Log(args ...interface{}) {
 type withS3Client struct{ client s3iface.S3API }
 
 func (w withS3Client) Apply(b Backend) {
-	switch v := b.(type) {
-	case *AWSS3Backend:
+	if v, ok := b.(*AWSS3Backend); ok {
 		v.client = w.client
 	}
 }
@@ -85,8 +84,7 @@ func WithS3Client(c s3iface.S3API) Option {
 type withS3Uploader struct{ uploader s3manageriface.UploaderAPI }
 
 func (w withS3Uploader) Apply(b Backend) {
-	switch v := b.(type) {
-	case *AWSS3Backend:
+	if v, ok := b.(*AWSS3Backend); ok {
 		v.uploader = w.uploader
 	}
 }
@@ -180,6 +178,7 @@ func withComputeMD5HashHandler(ro *request.Request) {
 			return
 		}
 
+		//nolint:gosec // MD5 not used cryptographically here
 		md5Raw := md5.New()
 		_, err := io.Copy(md5Raw, reader)
 		if err != nil {
@@ -298,7 +297,10 @@ func (a *AWSS3Backend) PreDownload(ctx context.Context, keys []string) error {
 		}
 	}
 	if len(toRestore) > 0 {
-		log.AppLogger.Infof("s3 backend: waiting for %d objects to restore from Glacier totaling %d bytes (this could take several hours)", len(toRestore), bytesToRestore)
+		log.AppLogger.Infof(
+			"s3 backend: waiting for %d objects to restore from Glacier totaling %d bytes (this could take several hours)",
+			len(toRestore), bytesToRestore,
+		)
 		// Now wait for the objects to be restored
 		backoffCount := 1
 		for idx := 0; idx < len(toRestore); idx++ {

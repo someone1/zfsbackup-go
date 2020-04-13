@@ -158,7 +158,11 @@ func (m *mockS3Client) HeadObjectWithContext(ctx aws.Context, in *s3.HeadObjectI
 	}
 }
 
-func (m *mockS3Client) RestoreObjectWithContext(ctx aws.Context, in *s3.RestoreObjectInput, _ ...request.Option) (*s3.RestoreObjectOutput, error) {
+func (m *mockS3Client) RestoreObjectWithContext(
+	ctx aws.Context,
+	in *s3.RestoreObjectInput,
+	_ ...request.Option,
+) (*s3.RestoreObjectOutput, error) {
 	switch *in.Key {
 	case s3BadKey:
 		return nil, errTest
@@ -168,7 +172,11 @@ func (m *mockS3Client) RestoreObjectWithContext(ctx aws.Context, in *s3.RestoreO
 	return nil, nil
 }
 
-func (m *mockS3Uploader) UploadWithContext(ctx aws.Context, in *s3manager.UploadInput, _ ...func(*s3manager.Uploader)) (*s3manager.UploadOutput, error) {
+func (m *mockS3Uploader) UploadWithContext(
+	ctx aws.Context,
+	in *s3manager.UploadInput,
+	_ ...func(*s3manager.Uploader),
+) (*s3manager.UploadOutput, error) {
 	if *in.Key == s3BadKey {
 		return nil, errTest
 	}
@@ -504,16 +512,29 @@ func TestS3Backend(t *testing.T) {
 		}
 	}
 
-	defer client.DeleteBucket(&s3.DeleteBucketInput{
-		Bucket: aws.String(s3TestBucketName),
-	})
+	defer func() {
+		if _, err := client.DeleteBucket(&s3.DeleteBucketInput{
+			Bucket: aws.String(s3TestBucketName),
+		}); err != nil {
+			t.Errorf("could not delete bucket - %v", err)
+		}
+	}()
 
 	testPayLoad, goodVol, badVol, perr := prepareTestVols()
 	if perr != nil {
 		t.Fatalf("Error while creating test volumes: %v", perr)
 	}
-	defer goodVol.DeleteVolume()
-	defer badVol.DeleteVolume()
+	defer func() {
+		if err := goodVol.DeleteVolume(); err != nil {
+			t.Errorf("could not delete good vol - %v", err)
+		}
+	}()
+
+	defer func() {
+		if err := badVol.DeleteVolume(); err != nil {
+			t.Errorf("could not delete bad vol - %v", err)
+		}
+	}()
 
 	t.Run("Init", func(t *testing.T) {
 		// Bad TargetURI

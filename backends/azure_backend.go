@@ -182,7 +182,7 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error 
 
 		readBytes += uint64(n)
 		if n > 0 {
-			// nolint:gosec // MD5 not used for crytopgraphic purposes
+			// nolint:gosec // MD5 not used for cryptopgraphic purposes
 			md5sum := md5.Sum(buf[:n])
 
 			select {
@@ -214,7 +214,9 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error 
 	}
 
 	// Finally, finalize the storage blob by giving Azure the block list order
-	_, err = blobURL.CommitBlockList(ctx, blockIDs, azblob.BlobHTTPHeaders{ContentMD5: md5Raw}, azblob.Metadata{}, azblob.BlobAccessConditions{})
+	_, err = blobURL.CommitBlockList(
+		ctx, blockIDs, azblob.BlobHTTPHeaders{ContentMD5: md5Raw}, azblob.Metadata{}, azblob.BlobAccessConditions{},
+	)
 	if err != nil {
 		log.AppLogger.Debugf("azure backend: Error while finalizing volume %s - %v", vol.ObjectName, err)
 	}
@@ -262,8 +264,8 @@ func (a *AzureBackend) List(ctx context.Context, prefix string) ([]string, error
 			return nil, errors.Wrap(err, "error while listing blobs from container")
 		}
 
-		for _, obj := range resp.Segment.BlobItems {
-			l = append(l, obj.Name)
+		for idx := range resp.Segment.BlobItems {
+			l = append(l, resp.Segment.BlobItems[idx].Name)
 		}
 
 		marker = resp.NextMarker

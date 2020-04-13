@@ -357,7 +357,7 @@ func TestEncryption(t *testing.T) {
 	// Restore Failure
 	cmd.ResetReceiveJobInfo()
 
-	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--workingDirectory", "./scratch", "-F", "tank/data@a", target, "tank/data2"})
+	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--workingDirectory", "./scratch", "-F", "tank/data@a", target, "tank/gointtest"})
 	if err := cmd.RootCmd.Execute(); err == nil {
 		t.Fatalf("expected an error performing receive")
 	}
@@ -365,7 +365,7 @@ func TestEncryption(t *testing.T) {
 	// Restore success
 	cmd.ResetReceiveJobInfo()
 
-	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--workingDirectory", "./scratch", "--secretKeyRingPath", "private.pgp", "--encryptTo", user, "-F", "tank/data@a", target, "tank/data2"})
+	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--workingDirectory", "./scratch", "--secretKeyRingPath", "private.pgp", "--encryptTo", user, "-F", "tank/data@a", target, "tank/gointtest"})
 	if err := cmd.RootCmd.Execute(); err != nil {
 		t.Fatalf("error performing receive: %v", err)
 	}
