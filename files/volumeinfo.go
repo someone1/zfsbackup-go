@@ -203,10 +203,10 @@ func (v *VolumeInfo) Extract(ctx context.Context, j *JobInfo, isManifest bool) e
 	}
 
 	if j.EncryptKey != nil || j.SignKey != nil {
-		config := new(packet.Config)
-		config.DefaultCompressionAlgo = packet.CompressionNone // We will do our own, thank you very much!
-		config.DefaultCipher = packet.CipherAES256
-		pgpReader, perr := openpgp.ReadMessage(v.r, pgp.GetCombinedKeyRing(), pgp.PromptFunc, config)
+		pgpConfig := new(packet.Config)
+		pgpConfig.DefaultCompressionAlgo = packet.CompressionNone // We will do our own, thank you very much!
+		pgpConfig.DefaultCipher = packet.CipherAES256
+		pgpReader, perr := openpgp.ReadMessage(v.r, pgp.GetCombinedKeyRing(), pgp.PromptFunc, pgpConfig)
 		if perr != nil {
 			return perr
 		}
@@ -414,12 +414,12 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe bool, isManifest bool) 
 	// Prepare the Encryption/Signing writer, if required
 	if j.EncryptKey != nil || j.SignKey != nil {
 		extensions = append(extensions, "pgp")
-		config := new(packet.Config)
-		config.DefaultCompressionAlgo = packet.CompressionNone // We will do our own, thank you very much!
-		config.DefaultCipher = packet.CipherAES256
+		pgpConfig := new(packet.Config)
+		pgpConfig.DefaultCompressionAlgo = packet.CompressionNone // We will do our own, thank you very much!
+		pgpConfig.DefaultCipher = packet.CipherAES256
 		fileHints := new(openpgp.FileHints)
 		fileHints.IsBinary = true
-		pgpWriter, err := openpgp.Encrypt(v.w, []*openpgp.Entity{j.EncryptKey}, j.SignKey, fileHints, config)
+		pgpWriter, err := openpgp.Encrypt(v.w, []*openpgp.Entity{j.EncryptKey}, j.SignKey, fileHints, pgpConfig)
 		if err != nil {
 			return nil, nil, nil, err
 		}

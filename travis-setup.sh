@@ -25,3 +25,23 @@ export AWS_SECRET_ACCESS_KEY=minioadmin
 
 # Scratch dir for tests
 mkdir ./scratch
+
+# PGP Test keys
+cat >test <<EOF
+     %echo Generating a basic OpenPGP key
+     Key-Type: RSA
+     Key-Length: 2048
+     Subkey-Type: RSA
+     Subkey-Length: 2048
+     %echo Generating a basic OpenPGP key
+     Name-Real: Example Tester
+     Name-Comment: with no passphrase
+     Name-Email: test@example.com
+     Expire-Date: 0
+     %no-protection
+     %commit
+     %echo done
+EOF
+gpg --batch --generate-key test
+gpg --output public.pgp --armor --export test@example.com
+gpg --output private.pgp --armor --export-secret-key test@example.com

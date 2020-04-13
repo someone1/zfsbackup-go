@@ -104,7 +104,7 @@ Incremental restore example:
 
 Notes:
 
-- Create keyring files: https://keybase.io/crypto
+- Create keyring files: gpg --gen-key && gpg --output public.pgp --armor --export test@example.com && gpg --output private.pgp --armor --export-secret-key test@example.com
 - PGP Passphrase will be prompted during execution if it is not found in the PGP_PASSPHRASE environmental variable.
 - `--maxFileBuffer=0` will disable parallel uploading for some backends, multiple destinations, and upload hash verification but will use virtually no disk space.
 - For S3: Specify Standard/Bulk/Expedited in the AWS_S3_GLACIER_RESTORE_TIER environmental variable to change Glacier restore option (default: Bulk)

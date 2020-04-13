@@ -289,8 +289,8 @@ func TestFileUpload(t *testing.T) {
 				readVerify, rerr := ioutil.ReadFile(filepath.Join(tempDir, testCase.vol.ObjectName))
 				if rerr != nil {
 					t.Errorf("%d: expected file does not exist as we expect it to - %v", idx, rerr)
-				} else !reflect.DeepEqual(testPayLoad, readVerify) {
-						t.Errorf("%d: read bytes not equal to given bytes", idx)
+				} else if !reflect.DeepEqual(testPayLoad, readVerify) {
+					t.Errorf("%d: read bytes not equal to given bytes", idx)
 				}
 			}
 		}

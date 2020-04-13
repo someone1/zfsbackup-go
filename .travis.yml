@@ -42,6 +42,7 @@ install:
 script:
   - make lint build
   - sudo -E $(which go) test -race -v -coverprofile=coverage.out -covermode=atomic -coverpkg=$(go list ./... | grep -v '/vendor/' | paste -sd, -) ./...
+  - source ./integration_test.sh
 
 after_success:
   - sudo -E $GOPATH/bin/goveralls -coverprofile=coverage.out -service=travis-ci

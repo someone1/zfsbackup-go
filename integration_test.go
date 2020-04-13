@@ -25,6 +25,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/url"
 	"os"
 	"os/exec"
@@ -330,5 +331,41 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 		// if err != nil {
 		// 	t.Fatalf("unexpected difference comparing the restored backup %sorigin: %v", err, target)
 		// }
+	}
+}
+
+// TestEncryption expects private.pgp and public.pgp to be available with the test@example.com user
+func TestEncryption(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "pgptest")
+	if err != nil {
+		t.Fatalf("error preparing temp dir for tests - %v", err)
+	}
+	defer os.RemoveAll(tempDir) // clean up
+
+	var (
+		target = fmt.Sprintf("file://%s", tempDir)
+		user   = "text@example.com"
+	)
+
+	// Manual Full Backup
+	cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--workingDirectory", "./scratch", "--secretKeyRingPath", "private.pgp", "--publicKeyRingPath", "public.pgp", "--encryptTo", user, "tank/data@a", target})
+	if err := cmd.RootCmd.Execute(); err != nil {
+		t.Fatalf("error performing backup: %v", err)
+	}
+
+	// Restore Failure
+	cmd.ResetReceiveJobInfo()
+
+	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--workingDirectory", "./scratch", "-F", "tank/data@a", target, "tank/data2"})
+	if err := cmd.RootCmd.Execute(); err == nil {
+		t.Fatalf("expected an error performing receive")
+	}
+
+	// Restore success
+	cmd.ResetReceiveJobInfo()
+
+	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--workingDirectory", "./scratch", "--secretKeyRingPath", "private.pgp", "--publicKeyRingPath", "public.pgp", "--encryptTo", user, "-F", "tank/data@a", target, "tank/data2"})
+	if err := cmd.RootCmd.Execute(); err != nil {
+		t.Fatalf("error performing receive: %v", err)
 	}
 }
