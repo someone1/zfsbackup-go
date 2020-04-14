@@ -69,15 +69,34 @@ var listCmd = &cobra.Command{
 func init() {
 	RootCmd.AddCommand(listCmd)
 
-	listCmd.Flags().StringVar(&startsWith, "volumeName", "", "Filter results to only this volume name, can end with a '*' to match as only a prefix")
-	listCmd.Flags().StringVar(&beforeStr, "before", "", "Filter results to only this backups before this specified date & time (format: yyyy-MM-ddTHH:mm:ss, parsed in local TZ)")
-	listCmd.Flags().StringVar(&afterStr, "after", "", "Filter results to only this backups after this specified date & time (format: yyyy-MM-ddTHH:mm:ss, parsed in local TZ)")
+	listCmd.Flags().StringVar(
+		&startsWith,
+		"volumeName",
+		"",
+		"Filter results to only this volume name, can end with a '*' to match as only a prefix",
+	)
+	listCmd.Flags().StringVar(
+		&beforeStr,
+		"before",
+		"",
+		"Filter results to only this backups before this specified date & time (format: yyyy-MM-ddTHH:mm:ss, parsed in local TZ)",
+	)
+	listCmd.Flags().StringVar(
+		&afterStr,
+		"after",
+		"",
+		"Filter results to only this backups after this specified date & time (format: yyyy-MM-ddTHH:mm:ss, parsed in local TZ)",
+	)
 }
 
 func validateListFlags(cmd *cobra.Command, args []string) error {
 	if len(args) != 1 {
-		cmd.Usage()
+		_ = cmd.Usage()
 		return errInvalidInput
+	}
+
+	if err := loadReceiveKeys(); err != nil {
+		return err
 	}
 
 	if beforeStr != "" {

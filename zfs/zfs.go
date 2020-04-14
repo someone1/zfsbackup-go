@@ -55,7 +55,9 @@ func GetCreationDate(ctx context.Context, target string) (time.Time, error) {
 // GetSnapshotsAndBookmarks will retrieve all snapshots and bookmarks for the given target
 func GetSnapshotsAndBookmarks(ctx context.Context, target string) ([]files.SnapshotInfo, error) {
 	errB := new(bytes.Buffer)
-	cmd := exec.CommandContext(ctx, ZFSPath, "list", "-H", "-d", "1", "-p", "-t", "snapshot,bookmark", "-r", "-o", "name,creation,type", "-S", "creation", target)
+	cmd := exec.CommandContext(
+		ctx, ZFSPath, "list", "-H", "-d", "1", "-p", "-t", "snapshot,bookmark", "-r", "-o", "name,creation,type", "-S", "creation", target,
+	)
 	log.AppLogger.Debugf("Getting ZFS Snapshots with command \"%s\"", strings.Join(cmd.Args, " "))
 	cmd.Stderr = errB
 	rpipe, err := cmd.StdoutPipe()
@@ -110,7 +112,6 @@ func GetZFSProperty(ctx context.Context, prop, target string) (string, error) {
 
 // GetZFSSendCommand will return the send command to use for the given JobInfo
 func GetZFSSendCommand(ctx context.Context, j *files.JobInfo) *exec.Cmd {
-
 	// Prepare the zfs send command
 	zfsArgs := []string{"send"}
 
@@ -157,7 +158,6 @@ func GetZFSSendCommand(ctx context.Context, j *files.JobInfo) *exec.Cmd {
 
 // GetZFSReceiveCommand will return the recv command to use for the given JobInfo
 func GetZFSReceiveCommand(ctx context.Context, j *files.JobInfo) *exec.Cmd {
-
 	// Prepare the zfs send command
 	zfsArgs := []string{"receive"}
 

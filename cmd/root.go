@@ -34,6 +34,7 @@ import (
 	"github.com/juju/ratelimit"
 	"github.com/op/go-logging"
 	"github.com/spf13/cobra"
+	"golang.org/x/crypto/openpgp"
 	"golang.org/x/crypto/ssh/terminal"
 
 	"github.com/someone1/zfsbackup-go/config"
@@ -66,6 +67,7 @@ destination of your choosing.`,
 	PersistentPreRunE: processFlags,
 	PersistentPostRun: postRunCleanup,
 	SilenceErrors:     true,
+	SilenceUsage:      true,
 }
 
 // Execute adds all child commands to the root command sets flags appropriately.
@@ -77,16 +79,65 @@ func Execute() {
 }
 
 func init() {
-	RootCmd.PersistentFlags().IntVar(&numCores, "numCores", 2, "number of CPU cores to utilize. Do not exceed the number of CPU cores on the system.")
-	RootCmd.PersistentFlags().StringVar(&logLevel, "logLevel", "notice", "this controls the verbosity level of logging. Possible values are critical, error, warning, notice, info, debug.")
-	RootCmd.PersistentFlags().StringVar(&secretKeyRingPath, "secretKeyRingPath", "", "the path to the PGP secret key ring")
-	RootCmd.PersistentFlags().StringVar(&publicKeyRingPath, "publicKeyRingPath", "", "the path to the PGP public key ring")
-	RootCmd.PersistentFlags().StringVar(&workingDirectory, "workingDirectory", "~/.zfsbackup", "the working directory path for zfsbackup.")
-	RootCmd.PersistentFlags().StringVar(&jobInfo.ManifestPrefix, "manifestPrefix", "manifests", "the prefix to use for all manifest files.")
-	RootCmd.PersistentFlags().StringVar(&jobInfo.EncryptTo, "encryptTo", "", "the email of the user to encrypt the data to from the provided public keyring.")
-	RootCmd.PersistentFlags().StringVar(&jobInfo.SignFrom, "signFrom", "", "the email of the user to sign on behalf of from the provided private keyring.")
-	RootCmd.PersistentFlags().StringVar(&zfs.ZFSPath, "zfsPath", "zfs", "the path to the zfs executable.")
-	RootCmd.PersistentFlags().BoolVar(&config.JSONOutput, "jsonOutput", false, "dump results as a JSON string - on success only")
+	RootCmd.PersistentFlags().IntVar(
+		&numCores,
+		"numCores",
+		2,
+		"number of CPU cores to utilize. Do not exceed the number of CPU cores on the system.",
+	)
+	RootCmd.PersistentFlags().StringVar(
+		&logLevel,
+		"logLevel",
+		"notice",
+		"this controls the verbosity level of logging. Possible values are critical, error, warning, notice, info, debug.",
+	)
+	RootCmd.PersistentFlags().StringVar(
+		&secretKeyRingPath,
+		"secretKeyRingPath",
+		"",
+		"the path to the PGP secret key ring",
+	)
+	RootCmd.PersistentFlags().StringVar(
+		&publicKeyRingPath,
+		"publicKeyRingPath",
+		"",
+		"the path to the PGP public key ring",
+	)
+	RootCmd.PersistentFlags().StringVar(
+		&workingDirectory,
+		"workingDirectory",
+		"~/.zfsbackup",
+		"the working directory path for zfsbackup.",
+	)
+	RootCmd.PersistentFlags().StringVar(
+		&jobInfo.ManifestPrefix,
+		"manifestPrefix",
+		"manifests", "the prefix to use for all manifest files.",
+	)
+	RootCmd.PersistentFlags().StringVar(
+		&jobInfo.EncryptTo,
+		"encryptTo",
+		"",
+		"the email of the user to encrypt the data to from the provided public keyring.",
+	)
+	RootCmd.PersistentFlags().StringVar(
+		&jobInfo.SignFrom,
+		"signFrom",
+		"",
+		"the email of the user to sign on behalf of from the provided private keyring.",
+	)
+	RootCmd.PersistentFlags().StringVar(
+		&zfs.ZFSPath,
+		"zfsPath",
+		"zfs",
+		"the path to the zfs executable.",
+	)
+	RootCmd.PersistentFlags().BoolVar(
+		&config.JSONOutput,
+		"jsonOutput",
+		false,
+		"dump results as a JSON string - on success only",
+	)
 	passphrase = []byte(os.Getenv("PGP_PASSPHRASE"))
 }
 
@@ -104,6 +155,7 @@ func resetRootFlags() {
 	config.JSONOutput = false
 }
 
+// nolint:gocyclo,funlen // Will do later
 func processFlags(cmd *cobra.Command, args []string) error {
 	switch strings.ToLower(logLevel) {
 	case "critical":
@@ -129,7 +181,10 @@ func processFlags(cmd *cobra.Command, args []string) error {
 	}
 
 	if numCores > runtime.NumCPU() {
-		log.AppLogger.Warningf("Ignoring user provided number of cores (%d) and using the number of detected cores (%d).", numCores, runtime.NumCPU())
+		log.AppLogger.Warningf(
+			"Ignoring user provided number of cores (%d) and using the number of detected cores (%d).",
+			numCores, runtime.NumCPU(),
+		)
 		numCores = runtime.NumCPU()
 	}
 	log.AppLogger.Infof("Setting number of cores to: %d", numCores)
@@ -151,6 +206,43 @@ func processFlags(cmd *cobra.Command, args []string) error {
 	}
 	log.AppLogger.Infof("Loaded public key ring %s", publicKeyRingPath)
 
+	if err := setupGlobalVars(); err != nil {
+		return err
+	}
+	log.AppLogger.Infof("Setting working directory to %s", workingDirectory)
+	pgp.PrintPGPDebugInformation()
+	return nil
+}
+
+func getAndDecryptPrivateKey(email string) (*openpgp.Entity, error) {
+	var entity *openpgp.Entity
+	if entity = pgp.GetPrivateKeyByEmail(email); entity == nil {
+		log.AppLogger.Errorf("Could not find private key for %s", email)
+		return nil, errInvalidInput
+	}
+
+	if entity.PrivateKey != nil && entity.PrivateKey.Encrypted {
+		validatePassphrase()
+		if err := entity.PrivateKey.Decrypt(passphrase); err != nil {
+			log.AppLogger.Errorf("Error decrypting private key: %v", err)
+			return nil, errInvalidInput
+		}
+	}
+
+	for _, subkey := range entity.Subkeys {
+		if subkey.PrivateKey != nil && subkey.PrivateKey.Encrypted {
+			validatePassphrase()
+			if err := subkey.PrivateKey.Decrypt(passphrase); err != nil {
+				log.AppLogger.Errorf("Error decrypting subkey's private key: %v", err)
+				return nil, errInvalidInput
+			}
+		}
+	}
+
+	return entity, nil
+}
+
+func loadSendKeys() error {
 	if jobInfo.EncryptTo != "" && publicKeyRingPath == "" {
 		log.AppLogger.Errorf("You must specify a public keyring path if you provide an encryptTo option")
 		return errInvalidInput
@@ -169,35 +261,42 @@ func processFlags(cmd *cobra.Command, args []string) error {
 	}
 
 	if jobInfo.SignFrom != "" {
-		if jobInfo.SignKey = pgp.GetPrivateKeyByEmail(jobInfo.SignFrom); jobInfo.SignKey == nil {
-			log.AppLogger.Errorf("Could not find private key for %s", jobInfo.SignFrom)
+		var err error
+		jobInfo.SignKey, err = getAndDecryptPrivateKey(jobInfo.SignFrom)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func loadReceiveKeys() error {
+	if jobInfo.EncryptTo != "" && secretKeyRingPath == "" {
+		log.AppLogger.Errorf("You must specify a secret keyring path if you provide an encryptTo option")
+		return errInvalidInput
+	}
+
+	if jobInfo.SignFrom != "" && publicKeyRingPath == "" {
+		log.AppLogger.Errorf("You must specify a public keyring path if you provide a signFrom option")
+		return errInvalidInput
+	}
+
+	if jobInfo.EncryptTo != "" {
+		var err error
+		jobInfo.EncryptKey, err = getAndDecryptPrivateKey(jobInfo.EncryptTo)
+		if err != nil {
+			return err
+		}
+	}
+
+	if jobInfo.SignFrom != "" {
+		if jobInfo.SignKey = pgp.GetPublicKeyByEmail(jobInfo.SignFrom); jobInfo.SignKey == nil {
+			log.AppLogger.Errorf("Could not find public key for %s", jobInfo.SignFrom)
 			return errInvalidInput
 		}
-
-		if jobInfo.SignKey.PrivateKey != nil && jobInfo.SignKey.PrivateKey.Encrypted {
-			validatePassphrase()
-			if err := jobInfo.SignKey.PrivateKey.Decrypt(passphrase); err != nil {
-				log.AppLogger.Errorf("Error decrypting private key: %v", err)
-				return errInvalidInput
-			}
-		}
-
-		for _, subkey := range jobInfo.SignKey.Subkeys {
-			if subkey.PrivateKey != nil && subkey.PrivateKey.Encrypted {
-				validatePassphrase()
-				if err := subkey.PrivateKey.Decrypt(passphrase); err != nil {
-					log.AppLogger.Errorf("Error decrypting subkey's private key: %v", err)
-					return errInvalidInput
-				}
-			}
-		}
 	}
 
-	if err := setupGlobalVars(); err != nil {
-		return err
-	}
-	log.AppLogger.Infof("Setting working directory to %s", workingDirectory)
-	pgp.PrintPGPDebugInformation()
 	return nil
 }
 
@@ -208,6 +307,7 @@ func postRunCleanup(cmd *cobra.Command, args []string) {
 	}
 }
 
+// nolint:gocyclo,funlen // Will do later
 func setupGlobalVars() error {
 	// Setup Tempdir
 
@@ -221,7 +321,10 @@ func setupGlobalVars() error {
 	}
 
 	if dir, serr := os.Stat(workingDirectory); serr == nil && !dir.IsDir() {
-		log.AppLogger.Errorf("Cannot create working directory because another non-directory object already exists in that path (%s)", workingDirectory)
+		log.AppLogger.Errorf(
+			"Cannot create working directory because another non-directory object already exists in that path (%s)",
+			workingDirectory,
+		)
 		return errInvalidInput
 	} else if serr != nil {
 		err := os.Mkdir(workingDirectory, 0755)
@@ -233,7 +336,10 @@ func setupGlobalVars() error {
 
 	dirPath := filepath.Join(workingDirectory, "temp")
 	if dir, serr := os.Stat(dirPath); serr == nil && !dir.IsDir() {
-		log.AppLogger.Errorf("Cannot create temp dir in working directory because another non-directory object already exists in that path (%s)", dirPath)
+		log.AppLogger.Errorf(
+			"Cannot create temp dir in working directory because another non-directory object already exists in that path (%s)",
+			dirPath,
+		)
 		return errInvalidInput
 	} else if serr != nil {
 		err := os.Mkdir(dirPath, 0755)
@@ -254,7 +360,10 @@ func setupGlobalVars() error {
 
 	dirPath = filepath.Join(workingDirectory, "cache")
 	if dir, serr := os.Stat(dirPath); serr == nil && !dir.IsDir() {
-		log.AppLogger.Errorf("Cannot create cache dir in working directory because another non-directory object already exists in that path (%s)", dirPath)
+		log.AppLogger.Errorf(
+			"Cannot create cache dir in working directory because another non-directory object already exists in that path (%s)",
+			dirPath,
+		)
 		return errInvalidInput
 	} else if serr != nil {
 		err := os.Mkdir(dirPath, 0755)

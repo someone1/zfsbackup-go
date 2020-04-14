@@ -1,7 +1,7 @@
 #!/bin/sh -ev
 
 # Setup ZFS Pool
-export VDEV=$(mktemp /tmp/testdevXXXX)
+export VDEV=$(mktemp)
 dd if=/dev/zero of=${VDEV} bs=2048 count=1048576
 sudo zpool create tank ${VDEV}
 sudo zfs create tank/data
@@ -19,12 +19,9 @@ sudo docker run -d -p 10000:10000 --rm --name azurite arafato/azurite
 sudo docker run -d -p 9000:9000 --rm --name minio minio/minio server /data
 
 # Setup env variables from Docker containers
-sleep 30
+sleep 10
 export AWS_ACCESS_KEY_ID=minioadmin
 export AWS_SECRET_ACCESS_KEY=minioadmin
-
-# Scratch dir for tests
-mkdir ./scratch
 
 # PGP Test keys
 cat >test <<EOF
@@ -42,6 +39,7 @@ cat >test <<EOF
      %commit
      %echo done
 EOF
-gpg2 --batch --generate-key test
+gpg2 --batch --gen-key test
 gpg2 --output public.pgp --armor --export test@example.com
 gpg2 --output private.pgp --armor --export-secret-key test@example.com
+rm test

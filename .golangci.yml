@@ -6,7 +6,7 @@ linters-settings:
     statements: 50
   goconst:
     min-len: 2
-    min-occurrences: 2
+    min-occurrences: 3
   gocritic:
     enabled-tags:
       - diagnostic

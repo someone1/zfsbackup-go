@@ -406,6 +406,7 @@ func (v *VolumeInfo) CopyTo(dest string) (err error) {
 
 // prepareVolume returns a VolumeInfo, filename parts, extension parts, and an error
 // compress -> encrypt/sign -> output
+// nolint:gocritic // Don't need to name the results
 func prepareVolume(ctx context.Context, j *JobInfo, pipe, isManifest bool) (*VolumeInfo, []string, []string, error) {
 	v, err := CreateSimpleVolume(ctx, pipe)
 	if err != nil {

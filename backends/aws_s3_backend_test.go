@@ -536,6 +536,7 @@ func TestS3Backend(t *testing.T) {
 		}
 	}()
 
+	// nolint:dupl // Similar but not the same
 	t.Run("Init", func(t *testing.T) {
 		// Bad TargetURI
 		conf := &BackendConfig{
@@ -572,11 +573,6 @@ func TestS3Backend(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Issue uploading goodvol: %v", err)
 		}
-
-		// err = b.Upload(ctx, badVol)
-		// if err == nil {
-		// 	t.Fatalf("Expecting non-nil error, got nil instead.")
-		// }
 	})
 
 	t.Run("List", func(t *testing.T) {
@@ -610,6 +606,7 @@ func TestS3Backend(t *testing.T) {
 		}
 	})
 
+	// nolint:dupl // Similar but not the same
 	t.Run("Download", func(t *testing.T) {
 		r, err := b.Download(ctx, goodVol.ObjectName)
 		if err != nil {

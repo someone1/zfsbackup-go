@@ -67,6 +67,7 @@ var sendCmd = &cobra.Command{
 	},
 }
 
+// nolint:funlen,gocyclo // Will do later
 func init() {
 	RootCmd.AddCommand(sendCmd)
 
@@ -78,20 +79,98 @@ func init() {
 	sendCmd.Flags().BoolVarP(&jobInfo.Properties, "properties", "p", false, "See the -p flag on zfs send for more information.")
 
 	// Specific to download only
-	sendCmd.Flags().Uint64Var(&jobInfo.VolumeSize, "volsize", 200, "the maximum size (in MiB) a volume should be before splitting to a new volume. Note: zfsbackup will try its best to stay close/under this limit but it is not guaranteed.")
-	sendCmd.Flags().IntVar(&jobInfo.CompressionLevel, "compressionLevel", 6, "the compression level to use with the compressor. Valid values are between 1-9.")
-	sendCmd.Flags().BoolVar(&jobInfo.Resume, "resume", false, "set this flag to true when you want to try and resume a previously cancled or failed backup. It is up to the caller to ensure the same command line arguments are provided between the original backup and the resumed one.")
-	sendCmd.Flags().BoolVar(&jobInfo.Full, "full", false, "set this flag to take a full backup of the specified volume using the most recent snapshot.")
-	sendCmd.Flags().BoolVar(&jobInfo.Incremental, "increment", false, "set this flag to do an incremental backup of the most recent snapshot from the most recent snapshot found in the target.")
-	sendCmd.Flags().DurationVar(&jobInfo.FullIfOlderThan, "fullIfOlderThan", -1*time.Minute, "set this flag to do an incremental backup of the most recent snapshot from the most recent snapshot found in the target unless the it's been greater than the time specified in this flag, then do a full backup.")
-	sendCmd.Flags().StringVar(&jobInfo.Compressor, "compressor", files.InternalCompressor, "specify to use the internal (parallel) gzip implementation or an external binary (e.g. gzip, bzip2, pigz, lzma, xz, etc.) Syntax must be similar to the gzip compression tool) to compress the stream for storage. Please take into consideration time, memory, and CPU usage for any of the compressors used. All manifests utilize the internal compressor. If value is zfs, the zfs stream will be created compressed. See the -c flag on zfs send for more information.")
-	sendCmd.Flags().IntVar(&jobInfo.MaxFileBuffer, "maxFileBuffer", 5, "the maximum number of files to have active during the upload process. Should be set to at least the number of max parallel uploads. Set to 0 to bypass local storage and upload straight to your destination - this will limit you to a single destination and disable any hash checks for the upload where available.")
-	sendCmd.Flags().IntVar(&jobInfo.MaxParallelUploads, "maxParallelUploads", 4, "the maximum number of uploads to run in parallel.")
-	sendCmd.Flags().Uint64Var(&maxUploadSpeed, "maxUploadSpeed", 0, "the maximum upload speed (in KB/s) the program should use between all upload workers. Use 0 for no limit")
-	sendCmd.Flags().DurationVar(&jobInfo.MaxRetryTime, "maxRetryTime", 12*time.Hour, "the maximum time that can elapse when retrying a failed upload. Use 0 for no limit.")
-	sendCmd.Flags().DurationVar(&jobInfo.MaxBackoffTime, "maxBackoffTime", 30*time.Minute, "the maximum delay you'd want a worker to sleep before retrying an upload.")
-	sendCmd.Flags().StringVar(&jobInfo.Separator, "separator", "|", "the separator to use between object component names.")
-	sendCmd.Flags().IntVar(&jobInfo.UploadChunkSize, "uploadChunkSize", 10, "the chunk size, in MiB, to use when uploading. A minimum of 5MiB and maximum of 100MiB is enforced.")
+	sendCmd.Flags().Uint64Var(
+		&jobInfo.VolumeSize,
+		"volsize",
+		200,
+		"the maximum size (in MiB) a volume should be before splitting to a new volume. Note: zfsbackup will try its best to stay close/under "+
+			"this limit but it is not guaranteed.",
+	)
+	sendCmd.Flags().IntVar(
+		&jobInfo.CompressionLevel,
+		"compressionLevel",
+		6,
+		"the compression level to use with the compressor. Valid values are between 1-9.",
+	)
+	sendCmd.Flags().BoolVar(
+		&jobInfo.Resume,
+		"resume",
+		false,
+		"set this flag to true when you want to try and resume a previously cancled or failed backup. It is up to the caller to ensure the same "+
+			"command line arguments are provided between the original backup and the resumed one.",
+	)
+	sendCmd.Flags().BoolVar(
+		&jobInfo.Full,
+		"full",
+		false,
+		"set this flag to take a full backup of the specified volume using the most recent snapshot.",
+	)
+	sendCmd.Flags().BoolVar(
+		&jobInfo.Incremental,
+		"increment",
+		false,
+		"set this flag to do an incremental backup of the most recent snapshot from the most recent snapshot found in the target.",
+	)
+	sendCmd.Flags().DurationVar(
+		&jobInfo.FullIfOlderThan,
+		"fullIfOlderThan",
+		-1*time.Minute,
+		"set this flag to do an incremental backup of the most recent snapshot from the most recent snapshot found in the target unless the "+
+			"it's been greater than the time specified in this flag, then do a full backup.",
+	)
+	sendCmd.Flags().StringVar(
+		&jobInfo.Compressor,
+		"compressor",
+		files.InternalCompressor,
+		"specify to use the internal (parallel) gzip implementation or an external binary (e.g. gzip, bzip2, pigz, lzma, xz, etc.) Syntax "+
+			"must be similar to the gzip compression tool) to compress the stream for storage. Please take into consideration time, memory, "+
+			"and CPU usage for any of the compressors used. All manifests utilize the internal compressor. If value is zfs, the zfs stream "+
+			"will be created compressed. See the -c flag on zfs send for more information.",
+	)
+	sendCmd.Flags().IntVar(
+		&jobInfo.MaxFileBuffer,
+		"maxFileBuffer",
+		5,
+		"the maximum number of files to have active during the upload process. Should be set to at least the number of max parallel uploads. "+
+			"Set to 0 to bypass local storage and upload straight to your destination - this will limit you to a single destination and disable "+
+			"any hash checks for the upload where available.",
+	)
+	sendCmd.Flags().IntVar(
+		&jobInfo.MaxParallelUploads,
+		"maxParallelUploads",
+		4,
+		"the maximum number of uploads to run in parallel.",
+	)
+	sendCmd.Flags().Uint64Var(
+		&maxUploadSpeed,
+		"maxUploadSpeed",
+		0,
+		"the maximum upload speed (in KB/s) the program should use between all upload workers. Use 0 for no limit",
+	)
+	sendCmd.Flags().DurationVar(
+		&jobInfo.MaxRetryTime,
+		"maxRetryTime",
+		12*time.Hour,
+		"the maximum time that can elapse when retrying a failed upload. Use 0 for no limit.",
+	)
+	sendCmd.Flags().DurationVar(
+		&jobInfo.MaxBackoffTime,
+		"maxBackoffTime",
+		30*time.Minute,
+		"the maximum delay you'd want a worker to sleep before retrying an upload.",
+	)
+	sendCmd.Flags().StringVar(
+		&jobInfo.Separator,
+		"separator",
+		"|",
+		"the separator to use between object component names.",
+	)
+	sendCmd.Flags().IntVar(
+		&jobInfo.UploadChunkSize,
+		"uploadChunkSize",
+		10,
+		"the chunk size, in MiB, to use when uploading. A minimum of 5MiB and maximum of 100MiB is enforced.",
+	)
 }
 
 // ResetSendJobInfo exists solely for integration testing
@@ -123,6 +202,7 @@ func ResetSendJobInfo() {
 	jobInfo.Compressor = files.InternalCompressor
 }
 
+// nolint:gocyclo,funlen // Will do later
 func updateJobInfo(args []string) error {
 	jobInfo.StartTime = time.Now()
 	jobInfo.Version = config.VersionNumber
@@ -153,7 +233,7 @@ func updateJobInfo(args []string) error {
 	}
 
 	// If we aren't using a "smart" option, rely on the user to provide the snapshots to use!
-	if !jobInfo.Full && !jobInfo.Incremental && jobInfo.FullIfOlderThan == -1*time.Minute {
+	if !usingSmartOption() {
 		if len(parts) != 2 {
 			log.AppLogger.Errorf("Invalid base snapshot provided. Expected format <volume>@<snapshot>, got %s instead", args[0])
 			return errInvalidInput
@@ -215,10 +295,24 @@ func updateJobInfo(args []string) error {
 	return nil
 }
 
+func usingSmartOption() bool {
+	return jobInfo.Full || jobInfo.Incremental || jobInfo.FullIfOlderThan != -1*time.Minute
+}
+
 func validateSendFlags(cmd *cobra.Command, args []string) error {
 	if len(args) != 2 {
-		cmd.Usage()
+		_ = cmd.Usage()
 		return errInvalidInput
+	}
+
+	if err := loadSendKeys(); err != nil {
+		return err
+	}
+
+	if usingSmartOption() {
+		if err := loadReceiveKeys(); err != nil {
+			return err
+		}
 	}
 
 	if jobInfo.IncrementalSnapshot.Name != "" && fullIncremental != "" {

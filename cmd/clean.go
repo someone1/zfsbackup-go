@@ -47,13 +47,20 @@ func init() {
 	RootCmd.AddCommand(cleanCmd)
 
 	cleanCmd.Flags().BoolVarP(&cleanLocal, "cleanLocal", "", false, "Delete any files found in the local cache that shouldn't be there.")
-	cleanCmd.Flags().BoolVarP(&jobInfo.Force, "force", "", false, "This will force the deletion of broken backup sets (sets where volumes expected in the manifest file are not found). Use with caution.")
+	cleanCmd.Flags().BoolVarP(&jobInfo.Force, "force", "", false,
+		"This will force the deletion of broken backup sets (sets where volumes expected in the manifest file are not found). Use with caution.",
+	)
 }
 
 func validateCleanFlags(cmd *cobra.Command, args []string) error {
 	if len(args) != 1 {
-		cmd.Usage()
+		_ = cmd.Usage()
 		return errInvalidInput
 	}
+
+	if err := loadReceiveKeys(); err != nil {
+		return err
+	}
+
 	return nil
 }

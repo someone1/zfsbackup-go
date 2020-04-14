@@ -55,17 +55,80 @@ func init() {
 	RootCmd.AddCommand(receiveCmd)
 
 	// ZFS recv command options
-	receiveCmd.Flags().BoolVar(&jobInfo.AutoRestore, "auto", false, "Automatically restore to the snapshot provided, or to the latest snapshot of the volume provided, cannot be used with the --incremental flag.")
-	receiveCmd.Flags().BoolVarP(&jobInfo.FullPath, "fullPath", "d", false, "See the -d flag on zfs recv for more information")
-	receiveCmd.Flags().BoolVarP(&jobInfo.LastPath, "lastPath", "e", false, "See the -e flag for zfs recv for more information.")
-	receiveCmd.Flags().BoolVarP(&jobInfo.Force, "force", "F", false, "See the -F flag for zfs recv for more information.")
-	receiveCmd.Flags().BoolVarP(&jobInfo.NotMounted, "unmounted", "u", false, "See the -u flag for zfs recv for more information.")
-	receiveCmd.Flags().StringVarP(&jobInfo.Origin, "origin", "o", "", "See the -o flag on zfs recv for more information.")
-	receiveCmd.Flags().StringVarP(&jobInfo.IncrementalSnapshot.Name, "incremental", "i", "", "Used to specify the snapshot target to restore from.")
-	receiveCmd.Flags().IntVar(&jobInfo.MaxFileBuffer, "maxFileBuffer", 5, "the maximum number of files to have active during the upload process. Should be set to at least the number of max parallel uploads. Set to 0 to bypass local storage and upload straight to your destination - this will limit you to a single destination and disable any hash checks for the upload where available.")
-	receiveCmd.Flags().DurationVar(&jobInfo.MaxRetryTime, "maxRetryTime", 12*time.Hour, "the maximum time that can elapse when retrying a failed download. Use 0 for no limit.")
-	receiveCmd.Flags().DurationVar(&jobInfo.MaxBackoffTime, "maxBackoffTime", 30*time.Minute, "the maximum delay you'd want a worker to sleep before retrying an download.")
-	receiveCmd.Flags().StringVar(&jobInfo.Separator, "separator", "|", "the separator to use between object component names (used only for the initial manifest we are looking for).")
+	receiveCmd.Flags().BoolVar(
+		&jobInfo.AutoRestore,
+		"auto",
+		false,
+		"Automatically restore to the snapshot provided, or to the latest snapshot of the volume provided, cannot be "+
+			"used with the --incremental flag.",
+	)
+	receiveCmd.Flags().BoolVarP(
+		&jobInfo.FullPath,
+		"fullPath",
+		"d",
+		false, "See the -d flag on zfs recv for more information",
+	)
+	receiveCmd.Flags().BoolVarP(
+		&jobInfo.LastPath,
+		"lastPath",
+		"e",
+		false,
+		"See the -e flag for zfs recv for more information.",
+	)
+	receiveCmd.Flags().BoolVarP(
+		&jobInfo.Force,
+		"force",
+		"F",
+		false,
+		"See the -F flag for zfs recv for more information.",
+	)
+	receiveCmd.Flags().BoolVarP(
+		&jobInfo.NotMounted,
+		"unmounted",
+		"u",
+		false,
+		"See the -u flag for zfs recv for more information.",
+	)
+	receiveCmd.Flags().StringVarP(
+		&jobInfo.Origin,
+		"origin",
+		"o",
+		"",
+		"See the -o flag on zfs recv for more information.",
+	)
+	receiveCmd.Flags().StringVarP(
+		&jobInfo.IncrementalSnapshot.Name,
+		"incremental",
+		"i",
+		"",
+		"Used to specify the snapshot target to restore from.",
+	)
+	receiveCmd.Flags().IntVar(
+		&jobInfo.MaxFileBuffer,
+		"maxFileBuffer",
+		5,
+		"the maximum number of files to have active during the upload process. Should be set to at least the number "+
+			"of max parallel uploads. Set to 0 to bypass local storage and upload straight to your destination - this will "+
+			"limit you to a single destination and disable any hash checks for the upload where available.",
+	)
+	receiveCmd.Flags().DurationVar(
+		&jobInfo.MaxRetryTime,
+		"maxRetryTime",
+		12*time.Hour,
+		"the maximum time that can elapse when retrying a failed download. Use 0 for no limit.",
+	)
+	receiveCmd.Flags().DurationVar(
+		&jobInfo.MaxBackoffTime,
+		"maxBackoffTime",
+		30*time.Minute,
+		"the maximum delay you'd want a worker to sleep before retrying an download.",
+	)
+	receiveCmd.Flags().StringVar(
+		&jobInfo.Separator,
+		"separator",
+		"|",
+		"the separator to use between object component names (used only for the initial manifest we are looking for).",
+	)
 }
 
 // ResetReceiveJobInfo exists solely for integration testing
@@ -85,11 +148,17 @@ func ResetReceiveJobInfo() {
 	jobInfo.Separator = "|"
 }
 
+// nolint:gocyclo // Will do later
 func validateReceiveFlags(cmd *cobra.Command, args []string) error {
 	if len(args) != 3 {
-		cmd.Usage()
+		_ = cmd.Usage()
 		return errInvalidInput
 	}
+
+	if err := loadReceiveKeys(); err != nil {
+		return err
+	}
+
 	jobInfo.StartTime = time.Now()
 
 	parts := strings.Split(args[0], "@")
@@ -115,7 +184,7 @@ func validateReceiveFlags(cmd *cobra.Command, args []string) error {
 		return errInvalidInput
 	}
 
-	// Remove 'origin=' from beggining of -o argument
+	// Remove 'origin=' from beginning of -o argument
 	jobInfo.Origin = strings.TrimPrefix(jobInfo.Origin, "origin=")
 
 	if !jobInfo.AutoRestore {

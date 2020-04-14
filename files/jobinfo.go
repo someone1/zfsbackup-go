@@ -159,6 +159,7 @@ func (j *JobInfo) TotalBytesStreamedAndVols() (total uint64, volnum int64) {
 
 // ValidateSendFlags will check if the options assigned to this JobInfo object is
 // properly within the bounds for a send backup operation.
+// nolint:golint,stylecheck // Error strings used as log messages for user
 func (j *JobInfo) ValidateSendFlags() error {
 	if j.MaxFileBuffer < 0 {
 		return fmt.Errorf("The number of active files must be set to a value greater than or equal to 0. Was given %d", j.MaxFileBuffer)
@@ -189,7 +190,10 @@ func (j *JobInfo) ValidateSendFlags() error {
 	}
 
 	if disallowedSeps.MatchString(j.Separator) {
-		return fmt.Errorf("The separator provided (%s) should not be used as it can conflict with allowed characters in zfs components", j.Separator)
+		return fmt.Errorf(
+			"The separator provided (%s) should not be used as it can conflict with allowed characters in zfs components",
+			j.Separator,
+		)
 	}
 
 	if j.UploadChunkSize < 5 || j.UploadChunkSize > 100 {

@@ -70,6 +70,7 @@ func getCacheDir(backendURI string) (string, error) {
 }
 
 // Returns local manifest paths that exist in the backend and those that do not
+// nolint:gocritic // Don't need to name the results
 func syncCache(ctx context.Context, j *files.JobInfo, localCache string, backend backends.Backend) ([]string, []string, error) {
 	// List all manifests at the destination
 	manifests, merr := backend.List(ctx, j.ManifestPrefix)
