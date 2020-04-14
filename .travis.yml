@@ -34,7 +34,7 @@ before_install:
   - source ./travis-setup.sh
 
 install:
-  - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.24.0
+  - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | | sh -s -- -b /usr/local/bin v1.24.0
   - GO111MODULE=off go get github.com/mattn/goveralls
   - GO111MODULE=off go get github.com/mitchellh/gox
   - make get

@@ -187,15 +187,16 @@ func copyDataset(t *testing.T, source, dest string) {
 		t.Fatalf("could not get os pipe: %v", err)
 	}
 
+	errChan := make(chan error)
 	go func() {
-		err = receiveCMD.Run()
+		errChan <- receiveCMD.Run()
 	}()
 
 	if sErr := sendCMD.Run(); sErr != nil {
 		t.Fatalf("unexpected error sending dataset %s to %s - %v", source, dest, sErr)
 	}
 
-	if err != nil {
+	if err = <-errChan; err != nil {
 		t.Fatalf("unexpected error receiving dataset %s to %s - %v", source, dest, err)
 	}
 }
