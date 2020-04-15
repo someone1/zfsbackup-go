@@ -1,6 +1,7 @@
 language: go
 
 sudo: required
+dist: bionic
 cache:
   directories:
     - $HOME/.ccache
@@ -19,8 +20,8 @@ env:
 
 before_install:
   - export MAKEFLAGS=-j$(($(grep -c '^processor' /proc/cpuinfo) * 2 + 1))
-  - export PATH=/usr/lib/ccache:$PATH
   - export GOPATH=$HOME/go
+  - export PATH=/usr/lib/ccache:$GOPATH/bin:$PATH
   - sudo apt-get -qq update
   - sudo apt-get install -y linux-headers-`uname -r` tree uuid-dev libattr1-dev libblkid-dev jq gnupg2 xz-utils gzip
   - mkdir -p $HOME/zfs
@@ -34,7 +35,7 @@ before_install:
   - source ./travis-setup.sh
 
 install:
-  - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin v1.24.0
+  - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $GOPATH/bin v1.24.0
   - GO111MODULE=off go get github.com/mattn/goveralls
   - GO111MODULE=off go get github.com/mitchellh/gox
   - make get

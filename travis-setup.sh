@@ -40,6 +40,6 @@ cat >test <<EOF
      %echo done
 EOF
 gpg2 --batch --gen-key test
-gpg2 --output public.pgp --yes --armor --export test@example.com
-gpg2 --output private.pgp --yes --armor --export-secret-key test@example.com
+gpg2 --output public.pgp --batch --yes --no-tty --armor --export test@example.com
+gpg2 --output private.pgp --batch --yes --no-tty --armor --export-secret-key test@example.com
 rm test
