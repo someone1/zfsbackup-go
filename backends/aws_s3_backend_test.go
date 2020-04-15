@@ -530,12 +530,6 @@ func TestS3Backend(t *testing.T) {
 		}
 	}()
 
-	defer func() {
-		if err := badVol.DeleteVolume(); err != nil {
-			t.Errorf("could not delete bad vol - %v", err)
-		}
-	}()
-
 	// nolint:dupl // Similar but not the same
 	t.Run("Init", func(t *testing.T) {
 		// Bad TargetURI
