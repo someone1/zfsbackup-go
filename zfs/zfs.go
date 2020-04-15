@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package helpers
+package zfs
 
 import (
 	"bytes"
@@ -28,6 +28,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/someone1/zfsbackup-go/files"
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 // ZFSPath is the path to the zfs binary
@@ -50,10 +53,12 @@ func GetCreationDate(ctx context.Context, target string) (time.Time, error) {
 }
 
 // GetSnapshotsAndBookmarks will retrieve all snapshots and bookmarks for the given target
-func GetSnapshotsAndBookmarks(ctx context.Context, target string) ([]SnapshotInfo, error) {
+func GetSnapshotsAndBookmarks(ctx context.Context, target string) ([]files.SnapshotInfo, error) {
 	errB := new(bytes.Buffer)
-	cmd := exec.CommandContext(ctx, ZFSPath, "list", "-H", "-d", "1", "-p", "-t", "snapshot,bookmark", "-r", "-o", "name,creation,type", "-S", "creation", target)
-	AppLogger.Debugf("Getting ZFS Snapshots with command \"%s\"", strings.Join(cmd.Args, " "))
+	cmd := exec.CommandContext(
+		ctx, ZFSPath, "list", "-H", "-d", "1", "-p", "-t", "snapshot,bookmark", "-r", "-o", "name,creation,type", "-S", "creation", target,
+	)
+	log.AppLogger.Debugf("Getting ZFS Snapshots with command \"%s\"", strings.Join(cmd.Args, " "))
 	cmd.Stderr = errB
 	rpipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -63,9 +68,9 @@ func GetSnapshotsAndBookmarks(ctx context.Context, target string) ([]SnapshotInf
 	if err != nil {
 		return nil, fmt.Errorf("%s (%v)", strings.TrimSpace(errB.String()), err)
 	}
-	var snapshots []SnapshotInfo
+	var snapshots []files.SnapshotInfo
 	for {
-		snapInfo := SnapshotInfo{}
+		snapInfo := files.SnapshotInfo{}
 		var creation int64
 		var objectType string
 		n, nerr := fmt.Fscanln(rpipe, &snapInfo.Name, &creation, &objectType)
@@ -95,7 +100,7 @@ func GetZFSProperty(ctx context.Context, prop, target string) (string, error) {
 	b := new(bytes.Buffer)
 	errB := new(bytes.Buffer)
 	cmd := exec.CommandContext(ctx, ZFSPath, "get", "-H", "-p", "-o", "value", prop, target)
-	AppLogger.Debugf("Getting ZFS Property with command \"%s\"", strings.Join(cmd.Args, " "))
+	log.AppLogger.Debugf("Getting ZFS Property with command \"%s\"", strings.Join(cmd.Args, " "))
 	cmd.Stdout = b
 	cmd.Stderr = errB
 	err := cmd.Run()
@@ -106,28 +111,27 @@ func GetZFSProperty(ctx context.Context, prop, target string) (string, error) {
 }
 
 // GetZFSSendCommand will return the send command to use for the given JobInfo
-func GetZFSSendCommand(ctx context.Context, j *JobInfo) *exec.Cmd {
-
+func GetZFSSendCommand(ctx context.Context, j *files.JobInfo) *exec.Cmd {
 	// Prepare the zfs send command
 	zfsArgs := []string{"send"}
 
 	if j.Replication {
-		AppLogger.Infof("Enabling the replication (-R) flag on the send.")
+		log.AppLogger.Infof("Enabling the replication (-R) flag on the send.")
 		zfsArgs = append(zfsArgs, "-R")
 	}
 
 	if j.Deduplication {
-		AppLogger.Infof("Enabling the deduplication (-D) flag on the send.")
+		log.AppLogger.Infof("Enabling the deduplication (-D) flag on the send.")
 		zfsArgs = append(zfsArgs, "-D")
 	}
 
 	if j.Properties {
-		AppLogger.Infof("Enabling the properties (-p) flag on the send.")
+		log.AppLogger.Infof("Enabling the properties (-p) flag on the send.")
 		zfsArgs = append(zfsArgs, "-p")
 	}
 
-	if j.Compressor == ZfsCompressor {
-		AppLogger.Infof("Enabling the compression (-c) flag on the send.")
+	if j.Compressor == files.ZfsCompressor {
+		log.AppLogger.Infof("Enabling the compression (-c) flag on the send.")
 		zfsArgs = append(zfsArgs, "-c")
 	}
 
@@ -138,10 +142,10 @@ func GetZFSSendCommand(ctx context.Context, j *JobInfo) *exec.Cmd {
 		}
 
 		if j.IntermediaryIncremental {
-			AppLogger.Infof("Enabling an incremental stream with all intermediary snapshots (-I) on the send to snapshot %s", incrementalName)
+			log.AppLogger.Infof("Enabling an incremental stream with all intermediary snapshots (-I) on the send to snapshot %s", incrementalName)
 			zfsArgs = append(zfsArgs, "-I", incrementalName)
 		} else {
-			AppLogger.Infof("Enabling an incremental stream (-i) on the send to snapshot %s", incrementalName)
+			log.AppLogger.Infof("Enabling an incremental stream (-i) on the send to snapshot %s", incrementalName)
 			zfsArgs = append(zfsArgs, "-i", incrementalName)
 		}
 	}
@@ -153,33 +157,32 @@ func GetZFSSendCommand(ctx context.Context, j *JobInfo) *exec.Cmd {
 }
 
 // GetZFSReceiveCommand will return the recv command to use for the given JobInfo
-func GetZFSReceiveCommand(ctx context.Context, j *JobInfo) *exec.Cmd {
-
+func GetZFSReceiveCommand(ctx context.Context, j *files.JobInfo) *exec.Cmd {
 	// Prepare the zfs send command
 	zfsArgs := []string{"receive"}
 
 	if j.FullPath {
-		AppLogger.Infof("Enabling the full path (-d) flag on the receive.")
+		log.AppLogger.Infof("Enabling the full path (-d) flag on the receive.")
 		zfsArgs = append(zfsArgs, "-d")
 	}
 
 	if j.LastPath {
-		AppLogger.Infof("Enabling the last path (-e) flag on the receive.")
+		log.AppLogger.Infof("Enabling the last path (-e) flag on the receive.")
 		zfsArgs = append(zfsArgs, "-e")
 	}
 
 	if j.NotMounted {
-		AppLogger.Infof("Enabling the not mounted (-u) flag on the receive.")
+		log.AppLogger.Infof("Enabling the not mounted (-u) flag on the receive.")
 		zfsArgs = append(zfsArgs, "-u")
 	}
 
 	if j.Force {
-		AppLogger.Infof("Enabling the forced rollback (-F) flag on the receive.")
+		log.AppLogger.Infof("Enabling the forced rollback (-F) flag on the receive.")
 		zfsArgs = append(zfsArgs, "-F")
 	}
 
 	if j.Origin != "" {
-		AppLogger.Infof("Enabling the origin flag (-o) on the receive to %s", j.Origin)
+		log.AppLogger.Infof("Enabling the origin flag (-o) on the receive to %s", j.Origin)
 		zfsArgs = append(zfsArgs, "-o", "origin="+j.Origin)
 	}
 

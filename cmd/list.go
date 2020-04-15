@@ -27,7 +27,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/someone1/zfsbackup-go/backup"
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 var (
@@ -47,18 +47,18 @@ var listCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if startsWith != "" {
 			if startsWith[len(startsWith)-1:] == "*" {
-				helpers.AppLogger.Infof("Listing all backup jobs for volumes starting with %s", startsWith)
+				log.AppLogger.Infof("Listing all backup jobs for volumes starting with %s", startsWith)
 			} else {
-				helpers.AppLogger.Infof("Listing all backup jobs for volume %s", startsWith)
+				log.AppLogger.Infof("Listing all backup jobs for volume %s", startsWith)
 			}
 		}
 
 		if !before.IsZero() {
-			helpers.AppLogger.Infof("Listing all back jobs of snapshots taken before %v", before)
+			log.AppLogger.Infof("Listing all back jobs of snapshots taken before %v", before)
 		}
 
 		if !after.IsZero() {
-			helpers.AppLogger.Infof("Listing all back jobs of snapshots taken after %v", after)
+			log.AppLogger.Infof("Listing all back jobs of snapshots taken after %v", after)
 		}
 
 		jobInfo.Destinations = []string{args[0]}
@@ -69,21 +69,40 @@ var listCmd = &cobra.Command{
 func init() {
 	RootCmd.AddCommand(listCmd)
 
-	listCmd.Flags().StringVar(&startsWith, "volumeName", "", "Filter results to only this volume name, can end with a '*' to match as only a prefix")
-	listCmd.Flags().StringVar(&beforeStr, "before", "", "Filter results to only this backups before this specified date & time (format: yyyy-MM-ddTHH:mm:ss, parsed in local TZ)")
-	listCmd.Flags().StringVar(&afterStr, "after", "", "Filter results to only this backups after this specified date & time (format: yyyy-MM-ddTHH:mm:ss, parsed in local TZ)")
+	listCmd.Flags().StringVar(
+		&startsWith,
+		"volumeName",
+		"",
+		"Filter results to only this volume name, can end with a '*' to match as only a prefix",
+	)
+	listCmd.Flags().StringVar(
+		&beforeStr,
+		"before",
+		"",
+		"Filter results to only this backups before this specified date & time (format: yyyy-MM-ddTHH:mm:ss, parsed in local TZ)",
+	)
+	listCmd.Flags().StringVar(
+		&afterStr,
+		"after",
+		"",
+		"Filter results to only this backups after this specified date & time (format: yyyy-MM-ddTHH:mm:ss, parsed in local TZ)",
+	)
 }
 
 func validateListFlags(cmd *cobra.Command, args []string) error {
 	if len(args) != 1 {
-		cmd.Usage()
+		_ = cmd.Usage()
 		return errInvalidInput
+	}
+
+	if err := loadReceiveKeys(); err != nil {
+		return err
 	}
 
 	if beforeStr != "" {
 		parsed, perr := time.ParseInLocation(time.RFC3339[:19], beforeStr, time.Local)
 		if perr != nil {
-			helpers.AppLogger.Errorf("could not parse before time '%s' due to error: %v", beforeStr, perr)
+			log.AppLogger.Errorf("could not parse before time '%s' due to error: %v", beforeStr, perr)
 			return perr
 		}
 		before = parsed
@@ -92,7 +111,7 @@ func validateListFlags(cmd *cobra.Command, args []string) error {
 	if afterStr != "" {
 		parsed, perr := time.ParseInLocation(time.RFC3339[:19], afterStr, time.Local)
 		if perr != nil {
-			helpers.AppLogger.Errorf("could not parse before time '%s' due to error: %v", beforeStr, perr)
+			log.AppLogger.Errorf("could not parse before time '%s' due to error: %v", beforeStr, perr)
 			return perr
 		}
 		after = parsed

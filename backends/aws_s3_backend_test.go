@@ -40,7 +40,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
-	"github.com/someone1/zfsbackup-go/helpers"
+
+	"github.com/someone1/zfsbackup-go/files"
 )
 
 type mockS3Client struct {
@@ -58,9 +59,16 @@ var (
 	s3BadKey    = "badkey"
 )
 
-const s3TestBucketName = "s3bucketbackendtest"
+const (
+	s3TestBucketName = "s3bucketbackendtest"
+	alreadyRestoring = "alreadyrestoring"
+)
 
-func (m *mockS3Client) DeleteObjectWithContext(ctx aws.Context, in *s3.DeleteObjectInput, _ ...request.Option) (*s3.DeleteObjectOutput, error) {
+func (m *mockS3Client) DeleteObjectWithContext(
+	ctx aws.Context,
+	in *s3.DeleteObjectInput,
+	_ ...request.Option,
+) (*s3.DeleteObjectOutput, error) {
 	if *in.Key == s3BadKey {
 		return nil, errTest
 	}
@@ -76,7 +84,11 @@ func (m *mockS3Client) GetObjectWithContext(ctx aws.Context, in *s3.GetObjectInp
 	return &s3.GetObjectOutput{}, nil
 }
 
-func (m *mockS3Client) ListObjectsV2WithContext(ctx aws.Context, in *s3.ListObjectsV2Input, _ ...request.Option) (*s3.ListObjectsV2Output, error) {
+func (m *mockS3Client) ListObjectsV2WithContext(
+	ctx aws.Context,
+	in *s3.ListObjectsV2Input,
+	_ ...request.Option,
+) (*s3.ListObjectsV2Output, error) {
 	if *in.Bucket == s3BadBucket || (in.Prefix != nil && *in.Prefix == s3BadKey) {
 		return nil, errTest
 	}
@@ -121,7 +133,7 @@ func (m *mockS3Client) HeadObjectWithContext(ctx aws.Context, in *s3.HeadObjectI
 	switch *in.Key {
 	case s3BadKey:
 		return nil, errTest
-	case "alreadyrestoring":
+	case alreadyRestoring:
 		m.headcallcount++
 		restoreString := "ongoing-request=\"true\""
 		if m.headcallcount >= 3 {
@@ -146,17 +158,25 @@ func (m *mockS3Client) HeadObjectWithContext(ctx aws.Context, in *s3.HeadObjectI
 	}
 }
 
-func (m *mockS3Client) RestoreObjectWithContext(ctx aws.Context, in *s3.RestoreObjectInput, _ ...request.Option) (*s3.RestoreObjectOutput, error) {
+func (m *mockS3Client) RestoreObjectWithContext(
+	ctx aws.Context,
+	in *s3.RestoreObjectInput,
+	_ ...request.Option,
+) (*s3.RestoreObjectOutput, error) {
 	switch *in.Key {
 	case s3BadKey:
 		return nil, errTest
-	case "alreadyrestoring":
+	case alreadyRestoring:
 		return nil, awserr.New("RestoreAlreadyInProgress", "", errTest)
 	}
 	return nil, nil
 }
 
-func (m *mockS3Uploader) UploadWithContext(ctx aws.Context, in *s3manager.UploadInput, _ ...func(*s3manager.Uploader)) (*s3manager.UploadOutput, error) {
+func (m *mockS3Uploader) UploadWithContext(
+	ctx aws.Context,
+	in *s3manager.UploadInput,
+	_ ...func(*s3manager.Uploader),
+) (*s3manager.UploadOutput, error) {
 	if *in.Key == s3BadKey {
 		return nil, errTest
 	}
@@ -339,7 +359,7 @@ func TestS3Upload(t *testing.T) {
 		conf    *BackendConfig
 		errTest errTestFunc
 		key     string
-		vol     *helpers.VolumeInfo
+		vol     *files.VolumeInfo
 	}{
 		{
 			conf: &BackendConfig{
@@ -439,7 +459,7 @@ func TestS3PreDownload(t *testing.T) {
 				TargetURI: AWSS3BackendPrefix + "://goodbucket",
 			},
 			errTest: nilErrTest,
-			keys:    []string{"good", "needsrestore", "alreadyrestoring"},
+			keys:    []string{"good", "needsrestore", alreadyRestoring},
 		},
 		{
 			conf: &BackendConfig{
@@ -492,17 +512,25 @@ func TestS3Backend(t *testing.T) {
 		}
 	}
 
-	defer client.DeleteBucket(&s3.DeleteBucketInput{
-		Bucket: aws.String(s3TestBucketName),
-	})
+	defer func() {
+		if _, err := client.DeleteBucket(&s3.DeleteBucketInput{
+			Bucket: aws.String(s3TestBucketName),
+		}); err != nil {
+			t.Errorf("could not delete bucket - %v", err)
+		}
+	}()
 
 	testPayLoad, goodVol, badVol, perr := prepareTestVols()
 	if perr != nil {
 		t.Fatalf("Error while creating test volumes: %v", perr)
 	}
-	defer goodVol.DeleteVolume()
-	defer badVol.DeleteVolume()
+	defer func() {
+		if err := goodVol.DeleteVolume(); err != nil {
+			t.Errorf("could not delete good vol - %v", err)
+		}
+	}()
 
+	// nolint:dupl // Similar but not the same
 	t.Run("Init", func(t *testing.T) {
 		// Bad TargetURI
 		conf := &BackendConfig{
@@ -539,11 +567,6 @@ func TestS3Backend(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Issue uploading goodvol: %v", err)
 		}
-
-		// err = b.Upload(ctx, badVol)
-		// if err == nil {
-		// 	t.Fatalf("Expecting non-nil error, got nil instead.")
-		// }
 	})
 
 	t.Run("List", func(t *testing.T) {
@@ -577,6 +600,7 @@ func TestS3Backend(t *testing.T) {
 		}
 	})
 
+	// nolint:dupl // Similar but not the same
 	t.Run("Download", func(t *testing.T) {
 		r, err := b.Download(ctx, goodVol.ObjectName)
 		if err != nil {

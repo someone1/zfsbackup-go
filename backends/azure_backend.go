@@ -23,7 +23,7 @@ package backends
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
+	"crypto/md5" // nolint:gosec // MD5 not used for crytopgrahic purposes
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -38,10 +38,9 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
+	"github.com/someone1/zfsbackup-go/log"
 )
-
-// Keep an eye on the Azure Go SDK, apparently there's a rewrite in progress: https://github.com/Azure/azure-sdk-for-go/issues/626#issuecomment-324398278
 
 // AzureBackendPrefix is the URI prefix used for the AzureBackend.
 const (
@@ -130,7 +129,10 @@ func (a *AzureBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Op
 }
 
 // Upload will upload the provided volume to this AzureBackend's configured container+prefix
-func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
+// It utilizes Azure Block Blob uploads to upload chunks of a single file concurrently. Partial
+// uploads are automatically garbage collected after one week. See:
+// https://docs.microsoft.com/en-us/rest/api/storageservices/put-block-list
+func (a *AzureBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 	// We will achieve parallel upload by splitting a single upload into chunks
 	// so don't let multiple calls to this function run in parallel.
 	a.mutex.Lock()
@@ -180,6 +182,7 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 
 		readBytes += uint64(n)
 		if n > 0 {
+			// nolint:gosec // MD5 not used for cryptopgraphic purposes
 			md5sum := md5.Sum(buf[:n])
 
 			select {
@@ -201,7 +204,7 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 
 	err := errg.Wait()
 	if err != nil {
-		helpers.AppLogger.Debugf("azure backend: Error while uploading volume %s - %v", vol.ObjectName, err)
+		log.AppLogger.Debugf("azure backend: Error while uploading volume %s - %v", vol.ObjectName, err)
 		return err
 	}
 
@@ -211,9 +214,11 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 	}
 
 	// Finally, finalize the storage blob by giving Azure the block list order
-	_, err = blobURL.CommitBlockList(ctx, blockIDs, azblob.BlobHTTPHeaders{ContentMD5: md5Raw}, azblob.Metadata{}, azblob.BlobAccessConditions{})
+	_, err = blobURL.CommitBlockList(
+		ctx, blockIDs, azblob.BlobHTTPHeaders{ContentMD5: md5Raw}, azblob.Metadata{}, azblob.BlobAccessConditions{},
+	)
 	if err != nil {
-		helpers.AppLogger.Debugf("azure backend: Error while finalizing volume %s - %v", vol.ObjectName, err)
+		log.AppLogger.Debugf("azure backend: Error while finalizing volume %s - %v", vol.ObjectName, err)
 	}
 	return err
 }
@@ -259,8 +264,8 @@ func (a *AzureBackend) List(ctx context.Context, prefix string) ([]string, error
 			return nil, errors.Wrap(err, "error while listing blobs from container")
 		}
 
-		for _, obj := range resp.Segment.BlobItems {
-			l = append(l, obj.Name)
+		for idx := range resp.Segment.BlobItems {
+			l = append(l, resp.Segment.BlobItems[idx].Name)
 		}
 
 		marker = resp.NextMarker

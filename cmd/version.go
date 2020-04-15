@@ -27,7 +27,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/config"
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 // versionCmd represents the version command
@@ -38,7 +39,7 @@ var versionCmd = &cobra.Command{
 the runtime and architecture.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var output string
-		if helpers.JSONOutput {
+		if config.JSONOutput {
 			j, err := json.Marshal(struct {
 				Name      string
 				Version   string
@@ -47,22 +48,24 @@ the runtime and architecture.`,
 				Compiled  string
 				GoVersion string
 			}{
-				Name:      helpers.ProgramName,
-				Version:   helpers.Version(),
+				Name:      config.ProgramName,
+				Version:   config.Version(),
 				OS:        runtime.GOOS,
 				Arch:      runtime.GOARCH,
 				Compiled:  runtime.Compiler,
 				GoVersion: runtime.Version(),
 			})
 			if err != nil {
-				helpers.AppLogger.Errorf("could not dump version info to JSON - %v", err)
+				log.AppLogger.Errorf("could not dump version info to JSON - %v", err)
 				return err
 			}
 			output = string(j)
 		} else {
-			output = fmt.Sprintf("\tProgram Name:\t%s\n\tVersion:\tv%s\n\tOS Target:\t%s\n\tArch Target:\t%s\n\tCompiled With:\t%s\n\tGo Version:\t%s", helpers.ProgramName, helpers.Version(), runtime.GOOS, runtime.GOARCH, runtime.Compiler, runtime.Version())
+			output = fmt.Sprintf(
+				"\tProgram Name:\t%s\n\tVersion:\tv%s\n\tOS Target:\t%s\n\tArch Target:\t%s\n\tCompiled With:\t%s\n\tGo Version:\t%s",
+				config.ProgramName, config.Version(), runtime.GOOS, runtime.GOARCH, runtime.Compiler, runtime.Version())
 		}
-		fmt.Fprintln(helpers.Stdout, output)
+		fmt.Fprintln(config.Stdout, output)
 		return nil
 	},
 }

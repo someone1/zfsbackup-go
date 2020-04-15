@@ -30,7 +30,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
 )
 
 type gcsMockClient struct {
@@ -151,7 +151,7 @@ func TestGCSClose(t *testing.T) {
 	testCases := []struct {
 		testcase gcsTestCase
 		output   error
-		in       <-chan *helpers.VolumeInfo
+		in       <-chan *files.VolumeInfo
 	}{
 		{
 			testcase: gcsTestCase{
@@ -372,7 +372,7 @@ func TestGCSUpload(t *testing.T) {
 	testCases := []struct {
 		gcsTestCase
 		errTest errTestFunc
-		vol     *helpers.VolumeInfo
+		vol     *files.VolumeInfo
 	}{
 		{
 			gcsTestCase: gcsTestCase{
@@ -434,7 +434,9 @@ func TestGCSUpload(t *testing.T) {
 		if err := b.Init(context.Background(), c.conf, WithGCSClient(c.client)); err != nil {
 			t.Errorf("%d: error setting up backend - %v", idx, err)
 		} else {
-			goodvol.Seek(0, io.SeekStart)
+			if _, err := goodvol.Seek(0, io.SeekStart); err != nil {
+				t.Errorf("%d: could not seek - %v", idx, err)
+			}
 			readVerify.Reset()
 			if errResult := b.Upload(context.Background(), c.vol); !c.errTest(errResult) {
 				t.Errorf("%d: Unexpected error, got %v", idx, errResult)

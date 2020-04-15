@@ -30,7 +30,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
 )
 
 var (
@@ -88,13 +88,13 @@ func invalidByteErrTest(e error) bool {
 	return ok
 }
 
-func prepareTestVols() (payload []byte, goodVol *helpers.VolumeInfo, badVol *helpers.VolumeInfo, err error) {
+func prepareTestVols() (payload []byte, goodVol, badVol *files.VolumeInfo, err error) {
 	payload = make([]byte, 10*1024*1024)
 	if _, err = rand.Read(payload); err != nil {
 		return
 	}
 	reader := bytes.NewReader(payload)
-	goodVol, err = helpers.CreateSimpleVolume(context.Background(), false)
+	goodVol, err = files.CreateSimpleVolume(context.Background(), false)
 	if err != nil {
 		return
 	}
@@ -108,7 +108,7 @@ func prepareTestVols() (payload []byte, goodVol *helpers.VolumeInfo, badVol *hel
 	}
 	goodVol.ObjectName = strings.Join([]string{"this", "is", "just", "a", "test"}, "-") + ".ext"
 
-	badVol, err = helpers.CreateSimpleVolume(context.Background(), false)
+	badVol, err = files.CreateSimpleVolume(context.Background(), false)
 	if err != nil {
 		return
 	}
@@ -120,7 +120,7 @@ func prepareTestVols() (payload []byte, goodVol *helpers.VolumeInfo, badVol *hel
 
 	err = badVol.DeleteVolume()
 
-	return
+	return payload, goodVol, badVol, err
 }
 
 func TestGetBackendForURI(t *testing.T) {

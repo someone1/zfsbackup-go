@@ -26,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
 )
 
 func TestDeleteGetBackendForURI(t *testing.T) {
@@ -55,7 +55,6 @@ func TestDeleteClose(t *testing.T) {
 			t.Errorf("Expected %v, got %v", nil, err)
 		}
 	}
-
 }
 
 func TestDeletePreDownload(t *testing.T) {
@@ -119,7 +118,7 @@ func TestDeleteStartUpload(t *testing.T) {
 	}
 
 	testCases := []struct {
-		vol   *helpers.VolumeInfo
+		vol   *files.VolumeInfo
 		valid errTestFunc
 	}{
 		{

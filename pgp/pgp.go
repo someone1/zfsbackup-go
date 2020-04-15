@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package helpers
+package pgp
 
 import (
 	"fmt"
@@ -26,6 +26,8 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/openpgp"
+
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 var (
@@ -45,13 +47,13 @@ func GetPrivateKeyByEmail(email string) *openpgp.Entity {
 	return getKeyByEmail(secRing, email)
 }
 
-// getCombinedKeyRing will return both the public and secret key rings combined
-func getCombinedKeyRing() openpgp.KeyRing {
+// GetCombinedKeyRing will return both the public and secret key rings combined
+func GetCombinedKeyRing() openpgp.KeyRing {
 	return append(pubRing, secRing...)
 }
 
-// promptFunc is used to satisfy the openpgp package's requirements
-func promptFunc(keys []openpgp.Key, symmetric bool) ([]byte, error) {
+// PromptFunc is used to satisfy the openpgp package's requirements
+func PromptFunc(keys []openpgp.Key, symmetric bool) ([]byte, error) {
 	panic("secret keys should have been decrypted already")
 }
 
@@ -101,5 +103,5 @@ func PrintPGPDebugInformation() {
 		debugStr = append(debugStr, fmt.Sprintf("\t%v\n\t%v", key.PrimaryKey.KeyIdString(), key.Identities))
 	}
 
-	AppLogger.Debugf("%s", strings.Join(debugStr, "\n"))
+	log.AppLogger.Debugf("%s", strings.Join(debugStr, "\n"))
 }

@@ -2,13 +2,13 @@
 
 DISCLAIMER: This is a work in progress in still considered beta though I personally use this in a production environment and have tested it for my own use cases (looking for feedback on other people's experience before considering this "production ready").
 
-## Overview:
+## Overview
 
 This backup software was designed for the secure, long-term storage of ZFS snapshots on remote storage. Backup jobs are resilient to network failures and can be stopped/resumed. It works by splitting the ZFS send stream (the format for which is committed and can be received on future versions of ZFS as per the [man page](<https://www.freebsd.org/cgi/man.cgi?zfs(8)>)) into chunks and then optionally compresses, encrypts, and signs each chunk before uploading it to your remote storage location(s) of choice. Backup chunks are validated using SHA256 and CRC32C checksums (along with the many integrity checks builtin to compression algorithms, SSL/TLS transportation protocols, and the ZFS stream format itself). The software is completely self-contained and has no external dependencies.
 
 This project was inspired by the [duplicity project](http://duplicity.nongnu.org/).
 
-### Highlights:
+### Highlights
 
 - Written in Go
 - No external dependencies - Just drop in the binary on your system and you're all set!
@@ -19,13 +19,13 @@ This project was inspired by the [duplicity project](http://duplicity.nongnu.org
 - Backup to multiple destinations at once, just comma separate destination URIs
 - Uses familiar ZFS send/receive options
 
-### Supported Backends:
+### Supported Backends
 
 - Google Cloud Storage (gs://)
-  - Auth details: https://developers.google.com/identity/protocols/application-default-credentials
+  - Auth details: <https://developers.google.com/identity/protocols/application-default-credentials>
   - [99.999999999% durability](https://cloud.google.com/storage/docs/storage-classes) - Using erasure encodings
 - Amazon AWS S3 (s3://) (Glacier supported indirectly via lifecycle rules)
-  - Auth details: https://godoc.org/github.com/aws/aws-sdk-go/aws/session#hdr-Environment_Variables
+  - Auth details: <https://godoc.org/github.com/aws/aws-sdk-go/aws/session#hdr-Environment_Variables>
   - [99.999999999% durability](https://aws.amazon.com/s3/faqs/#data-protection) - Using replication and checksums on the data for integrity validation and repair
 - Any S3 Compatible Storage Provider (e.g. Minio, StorageMadeEasy, Ceph, etc.)
   - Set the AWS_S3_CUSTOM_ENDPOINT environmental variable to the compatible target API URI
@@ -38,11 +38,11 @@ This project was inspired by the [duplicity project](http://duplicity.nongnu.org
   - [99.999999999% durability](https://help.backblaze.com/hc/en-us/articles/218485257-B2-Resiliency-Durability-and-Availability) - Using the Reed-Solomon erasure encoding
 - Local file path (file://[relative|/absolute]/local/path)
 
-### Compression:
+### Compression
 
 The compression algorithm builtin to the software is a parallel gzip ([pgzip](https://github.com/klauspost/pgzip)) compressor. There is support for 3rd party compressors so long as the binary is available on the host system and is compatible with the standard gzip binary command line options (e.g. xz, bzip2, lzma, etc.)
 
-### Encryption/Signing:
+### Encryption/Signing
 
 The PGP algorithm is used for encryption/signing. The cipher used is AES-256.
 
@@ -58,53 +58,77 @@ The compiled binary should be in your $GOPATH/bin directory.
 
 ## Usage
 
-### "Smart" Backup Options:
+### "Smart" Backup Options
 
 Use the `--full` option to auto select the most recent snapshot on the target volume to do a full backup of:
 
-    $ ./zfsbackup send --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --full Tank/Dataset gs://backup-bucket-target,s3://another-backup-target
+```bash
+./zfsbackup send --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --full Tank/Dataset gs://backup-bucket-target,s3://another-backup-target
+```
 
 Use the `--increment` option to auto select the most recent snapshot on the target volume to do an incremental snapshot of the most recent snapshot found in the target destination:
 
-    $ ./zfsbackup send --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --increment Tank/Dataset gs://backup-bucket-target,s3://another-backup-target
+```bash
+./zfsbackup send --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --increment Tank/Dataset gs://backup-bucket-target,s3://another-backup-target
+```
 
 Use the `--fullIfOlderThan` option to auto select the most recent snapshot on the target volume to do an incremental snapshot of the most recent snapshot found in the target destination, unless the last full backup is older than the provided duration, in which case do a full backup:
 
-    $ ./zfsbackup send --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --fullIfOlderThan 720h Tank/Dataset gs://backup-bucket-target,s3://another-backup-target
+```bash
+./zfsbackup send --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --fullIfOlderThan 720h Tank/Dataset gs://backup-bucket-target,s3://another-backup-target
+```
 
-### "Smart" Restore Options:
+### "Smart" Restore Options
 
 Add the `--auto` option to automatically restore to the snapshot if one is given, or detect the latest snapshot for the filesystem/volume given and restore to that. It will figure out which snapshots are missing from the local_volume and select them all to restore to get to the desired snapshot. Note: snapshot comparisons work using the name of the snapshot, if you restored a snapshot to a different name, this application won't think it is available and it will break the restore process.
 
 Auto-detect latest snapshot:
 
-    $ ./zfsbackup receive --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --auto -d Tank/Dataset gs://backup-bucket-target Tank
+```bash
+./zfsbackup receive --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --auto -d Tank/Dataset gs://backup-bucket-target Tank
+```
 
 Auto restore to snapshot provided:
 
-    $ ./zfsbackup receive --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --auto -d Tank/Dataset@snapshot-20170201 gs://backup-bucket-target Tank
+```bash
+./zfsbackup receive --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc --auto -d Tank/Dataset@snapshot-20170201 gs://backup-bucket-target Tank
+```
 
-### Manual Options:
+### Manual Options
 
 Full backup example:
 
-    $ ./zfsbackup send --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc Tank/Dataset@snapshot-20170101 gs://backup-bucket-target
+```bash
+./zfsbackup send --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc Tank/Dataset@snapshot-20170101 gs://backup-bucket-target
+```
 
 Incremental backup example:
 
-    $ ./zfsbackup send --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc -i Tank/Dataset@snapshot-20170101 Tank/Dataset@snapshot-20170201 gs://backup-bucket-target,s3://another-backup-target
+ ```bash./zfsbackup send --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc -i Tank/Dataset@snapshot-20170101 Tank/Dataset@snapshot-20170201 gs://backup-bucket-target,s3://another-backup-target
+  ```
 
 Full restore example:
 
-    $ ./zfsbackup receive --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc -d Tank/Dataset@snapshot-20170201 gs://backup-bucket-target Tank
+  ```bash
+  ./zfsbackup receive --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc -d Tank/Dataset@snapshot-20170201 gs://backup-bucket-target Tank
+  ```
 
 Incremental restore example:
 
-    $ ./zfsbackup receive --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc -d -F -i Tank/Dataset@snapshot-20170101 Tank/Dataset@snapshot-20170201 gs://backup-bucket-target Tank
+```bash
+./zfsbackup receive --encryptTo user@domain.com --signFrom user@domain.com --publicKeyRingPath pubring.gpg.asc --secretKeyRingPath secring.gpg.asc -d -F -i Tank/Dataset@snapshot-20170101 Tank/Dataset@snapshot-20170201 gs://backup-bucket-target Tank
+```
 
 Notes:
 
-- Create keyring files: https://keybase.io/crypto
+- Create keyring files:
+
+```bash
+gpg2 --gen-key
+gpg2 --output public.pgp --armor --export test@example.com
+gpg2 --output private.pgp --armor --export-secret-key test@example.com
+```
+
 - PGP Passphrase will be prompted during execution if it is not found in the PGP_PASSPHRASE environmental variable.
 - `--maxFileBuffer=0` will disable parallel uploading for some backends, multiple destinations, and upload hash verification but will use virtually no disk space.
 - For S3: Specify Standard/Bulk/Expedited in the AWS_S3_GLACIER_RESTORE_TIER environmental variable to change Glacier restore option (default: Bulk)
@@ -191,7 +215,7 @@ Global Flags:
       --zfsPath string             the path to the zfs executable. (default "zfs")
 ```
 
-## TODOs:
+## TODOs
 
 - Make PGP cipher configurable.
 - Refactor

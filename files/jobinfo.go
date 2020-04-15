@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package helpers
+package files
 
 import (
 	"fmt"
@@ -28,6 +28,8 @@ import (
 
 	humanize "github.com/dustin/go-humanize"
 	"golang.org/x/crypto/openpgp"
+
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 var (
@@ -113,17 +115,28 @@ func (j *JobInfo) TotalBytesWritten() uint64 {
 // String will return a string representation of this JobInfo.
 func (j *JobInfo) String() string {
 	var output []string
-	output = append(output, fmt.Sprintf("Volume: %s", j.VolumeName))
-	output = append(output, fmt.Sprintf("Snapshot: %s (%v)", j.BaseSnapshot.Name, j.BaseSnapshot.CreationTime))
+	output = append(
+		output,
+		fmt.Sprintf("Volume: %s", j.VolumeName),
+		fmt.Sprintf("Snapshot: %s (%v)", j.BaseSnapshot.Name, j.BaseSnapshot.CreationTime),
+	)
 	if j.IncrementalSnapshot.Name != "" {
-		output = append(output, fmt.Sprintf("Incremental From Snapshot: %s (%v)", j.IncrementalSnapshot.Name, j.IncrementalSnapshot.CreationTime))
-		output = append(output, fmt.Sprintf("Intermediary: %v", j.IntermediaryIncremental))
+		output = append(
+			output,
+			fmt.Sprintf("Incremental From Snapshot: %s (%v)", j.IncrementalSnapshot.Name, j.IncrementalSnapshot.CreationTime),
+			fmt.Sprintf("Intermediary: %v", j.IntermediaryIncremental),
+		)
 	}
-	output = append(output, fmt.Sprintf("Replication: %v", j.Replication))
+
 	totalWrittenBytes := j.TotalBytesWritten()
-	output = append(output, fmt.Sprintf("Archives: %d - %d bytes (%s)", len(j.Volumes), totalWrittenBytes, humanize.IBytes(totalWrittenBytes)))
-	output = append(output, fmt.Sprintf("Volume Size (Raw): %d bytes (%s)", j.ZFSStreamBytes, humanize.IBytes(j.ZFSStreamBytes)))
-	output = append(output, fmt.Sprintf("Uploaded: %v (took %v)\n\n", j.StartTime, j.EndTime.Sub(j.StartTime)))
+
+	output = append(
+		output,
+		fmt.Sprintf("Replication: %v", j.Replication),
+		fmt.Sprintf("Archives: %d - %d bytes (%s)", len(j.Volumes), totalWrittenBytes, humanize.IBytes(totalWrittenBytes)),
+		fmt.Sprintf("Volume Size (Raw): %d bytes (%s)", j.ZFSStreamBytes, humanize.IBytes(j.ZFSStreamBytes)),
+		fmt.Sprintf("Uploaded: %v (took %v)\n\n", j.StartTime, j.EndTime.Sub(j.StartTime)),
+	)
 	return strings.Join(output, "\n\t")
 }
 
@@ -146,6 +159,7 @@ func (j *JobInfo) TotalBytesStreamedAndVols() (total uint64, volnum int64) {
 
 // ValidateSendFlags will check if the options assigned to this JobInfo object is
 // properly within the bounds for a send backup operation.
+// nolint:golint,stylecheck // Error strings used as log messages for user
 func (j *JobInfo) ValidateSendFlags() error {
 	if j.MaxFileBuffer < 0 {
 		return fmt.Errorf("The number of active files must be set to a value greater than or equal to 0. Was given %d", j.MaxFileBuffer)
@@ -156,7 +170,11 @@ func (j *JobInfo) ValidateSendFlags() error {
 	}
 
 	if j.MaxFileBuffer < j.MaxParallelUploads {
-		AppLogger.Warningf("The number of parallel uploads (%d) is greater than the number of active files allowed (%d), this may result in an unachievable max parallel upload target.", j.MaxParallelUploads, j.MaxFileBuffer)
+		log.AppLogger.Warningf(
+			"The number of parallel uploads (%d) is greater than the number of active files allowed (%d), this may result in an unachievable max parallel upload target.", //nolint:lll // Long log output
+			j.MaxParallelUploads,
+			j.MaxFileBuffer,
+		)
 	}
 
 	if j.MaxRetryTime < 0 {
@@ -172,7 +190,10 @@ func (j *JobInfo) ValidateSendFlags() error {
 	}
 
 	if disallowedSeps.MatchString(j.Separator) {
-		return fmt.Errorf("The separator provided (%s) should not be used as it can conflict with allowed characters in zfs components", j.Separator)
+		return fmt.Errorf(
+			"The separator provided (%s) should not be used as it can conflict with allowed characters in zfs components",
+			j.Separator,
+		)
 	}
 
 	if j.UploadChunkSize < 5 || j.UploadChunkSize > 100 {

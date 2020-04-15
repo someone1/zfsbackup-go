@@ -22,7 +22,7 @@ package backends
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // MD5 not used cryptographically here
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -42,7 +42,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
 
-	"github.com/someone1/zfsbackup-go/helpers"
+	"github.com/someone1/zfsbackup-go/files"
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 // AWSS3BackendPrefix is the URI prefix used for the AWSS3Backend.
@@ -63,14 +64,13 @@ type AWSS3Backend struct {
 type logger struct{}
 
 func (l logger) Log(args ...interface{}) {
-	helpers.AppLogger.Debugf("s3 backend:", args...)
+	log.AppLogger.Debugf("s3 backend:", args...)
 }
 
 type withS3Client struct{ client s3iface.S3API }
 
 func (w withS3Client) Apply(b Backend) {
-	switch v := b.(type) {
-	case *AWSS3Backend:
+	if v, ok := b.(*AWSS3Backend); ok {
 		v.client = w.client
 	}
 }
@@ -84,8 +84,7 @@ func WithS3Client(c s3iface.S3API) Option {
 type withS3Uploader struct{ uploader s3manageriface.UploaderAPI }
 
 func (w withS3Uploader) Apply(b Backend) {
-	switch v := b.(type) {
-	case *AWSS3Backend:
+	if v, ok := b.(*AWSS3Backend); ok {
 		v.uploader = w.uploader
 	}
 }
@@ -179,6 +178,7 @@ func withComputeMD5HashHandler(ro *request.Request) {
 			return
 		}
 
+		//nolint:gosec // MD5 not used cryptographically here
 		md5Raw := md5.New()
 		_, err := io.Copy(md5Raw, reader)
 		if err != nil {
@@ -200,7 +200,11 @@ func (r *reader) Read(p []byte) (int, error) {
 }
 
 // Upload will upload the provided volume to this AWSS3Backend's configured bucket+prefix
-func (a *AWSS3Backend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
+// It utilizes multipart uploads to upload a single file in chunks concurrently. Impartial
+// uploads are cleaned up by the s3manager provided by the AWS Go SDK, but users can also
+// implement lifecycle rules, see:
+// https://docs.aws.amazon.com/AmazonS3/latest/dev/mpuoverview.html#mpu-abort-incomplete-mpu-lifecycle-config
+func (a *AWSS3Backend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 	// We will achieve parallel upload by splitting a single upload into chunks
 	// so don't let multiple calls to this function run in parallel.
 	a.mutex.Lock()
@@ -236,7 +240,7 @@ func (a *AWSS3Backend) Upload(ctx context.Context, vol *helpers.VolumeInfo) erro
 	}, s3manager.WithUploaderRequestOptions(options...))
 
 	if err != nil {
-		helpers.AppLogger.Debugf("s3 backend: Error while uploading volume %s - %v", vol.ObjectName, err)
+		log.AppLogger.Debugf("s3 backend: Error while uploading volume %s - %v", vol.ObjectName, err)
 	}
 	return err
 }
@@ -260,7 +264,7 @@ func (a *AWSS3Backend) PreDownload(ctx context.Context, keys []string) error {
 		restoreTier = s3.TierBulk
 	}
 	var bytesToRestore int64
-	helpers.AppLogger.Debugf("s3 backend: will use the %s restore tier when trying to restore from Glacier.", restoreTier)
+	log.AppLogger.Debugf("s3 backend: will use the %s restore tier when trying to restore from Glacier.", restoreTier)
 	for _, key := range keys {
 		resp, err := a.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 			Bucket: aws.String(a.bucketName),
@@ -270,7 +274,7 @@ func (a *AWSS3Backend) PreDownload(ctx context.Context, keys []string) error {
 			return err
 		}
 		if resp.StorageClass != nil && *resp.StorageClass == s3.ObjectStorageClassGlacier {
-			helpers.AppLogger.Debugf("s3 backend: key %s will be restored from the Glacier storage class.", key)
+			log.AppLogger.Debugf("s3 backend: key %s will be restored from the Glacier storage class.", key)
 			bytesToRestore += *resp.ContentLength
 			// Let's Start a restore
 			toRestore = append(toRestore, key)
@@ -286,14 +290,17 @@ func (a *AWSS3Backend) PreDownload(ctx context.Context, keys []string) error {
 			})
 			if rerr != nil {
 				if aerr, ok := rerr.(awserr.Error); ok && aerr.Code() != "RestoreAlreadyInProgress" {
-					helpers.AppLogger.Debugf("s3 backend: error trying to restore key %s - %s: %s", key, aerr.Code(), aerr.Message())
+					log.AppLogger.Debugf("s3 backend: error trying to restore key %s - %s: %s", key, aerr.Code(), aerr.Message())
 					return rerr
 				}
 			}
 		}
 	}
 	if len(toRestore) > 0 {
-		helpers.AppLogger.Infof("s3 backend: waiting for %d objects to restore from Glacier totaling %d bytes (this could take several hours)", len(toRestore), bytesToRestore)
+		log.AppLogger.Infof(
+			"s3 backend: waiting for %d objects to restore from Glacier totaling %d bytes (this could take several hours)",
+			len(toRestore), bytesToRestore,
+		)
 		// Now wait for the objects to be restored
 		backoffCount := 1
 		for idx := 0; idx < len(toRestore); idx++ {
@@ -314,7 +321,7 @@ func (a *AWSS3Backend) PreDownload(ctx context.Context, keys []string) error {
 				}
 			} else {
 				backoffCount = 1
-				helpers.AppLogger.Debugf("s3 backend: key %s restored.", key)
+				log.AppLogger.Debugf("s3 backend: key %s restored.", key)
 			}
 		}
 	}

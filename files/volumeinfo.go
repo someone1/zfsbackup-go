@@ -18,13 +18,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package helpers
+package files
 
 import (
 	"bufio"
 	"context"
-	"crypto/md5"
-	"crypto/sha1"
+	"crypto/md5"  // nolint:gosec // MD5 not used for cryptographic purposes here
+	"crypto/sha1" // nolint:gosec // SHA1 not used for cryptographic purposes here
 	"crypto/sha256"
 	"fmt"
 	"hash"
@@ -43,16 +43,14 @@ import (
 	"github.com/miolini/datacounter"
 	"golang.org/x/crypto/openpgp"
 	"golang.org/x/crypto/openpgp/packet"
+
+	"github.com/someone1/zfsbackup-go/config"
+	"github.com/someone1/zfsbackup-go/log"
+	"github.com/someone1/zfsbackup-go/pgp"
 )
 
 var (
 	printCompressCMD sync.Once
-	// BackupUploadBucket is the bandwidth rate-limit bucket if we need one.
-	BackupUploadBucket *ratelimit.Bucket
-	// BackupTempdir is the scratch space for our output
-	BackupTempdir string
-	// WorkingDir is the directory that all the cache/scratch work is done for this program
-	WorkingDir string
 )
 
 const (
@@ -175,8 +173,8 @@ func (v *VolumeInfo) OpenVolume() error {
 	v.r = f
 	v.isClosed = false
 	v.isOpened = true
-	if BackupUploadBucket != nil {
-		v.r = ratelimit.Reader(v.r, BackupUploadBucket)
+	if config.BackupUploadBucket != nil {
+		v.r = ratelimit.Reader(v.r, config.BackupUploadBucket)
 	}
 
 	return nil
@@ -205,10 +203,10 @@ func (v *VolumeInfo) Extract(ctx context.Context, j *JobInfo, isManifest bool) e
 	}
 
 	if j.EncryptKey != nil || j.SignKey != nil {
-		config := new(packet.Config)
-		config.DefaultCompressionAlgo = packet.CompressionNone // We will do our own, thank you very much!
-		config.DefaultCipher = packet.CipherAES256
-		pgpReader, perr := openpgp.ReadMessage(v.r, getCombinedKeyRing(), promptFunc, config)
+		pgpConfig := new(packet.Config)
+		pgpConfig.DefaultCompressionAlgo = packet.CompressionNone // We will do our own, thank you very much!
+		pgpConfig.DefaultCipher = packet.CipherAES256
+		pgpReader, perr := openpgp.ReadMessage(v.r, pgp.GetCombinedKeyRing(), pgp.PromptFunc, pgpConfig)
 		if perr != nil {
 			return perr
 		}
@@ -243,7 +241,9 @@ func (v *VolumeInfo) Extract(ctx context.Context, j *JobInfo, isManifest bool) e
 		v.r = v.rw
 		v.cmd.Stderr = os.Stderr
 
-		v.cmd.Start()
+		if err := v.cmd.Start(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -263,6 +263,7 @@ func (v *VolumeInfo) Write(p []byte) (int, error) {
 }
 
 // Close should be called after creating a new volume or after calling OpenVolume
+// nolint:funlen,gocyclo // Difficult to break this apart
 func (v *VolumeInfo) Close() error {
 	// Protect against multiple calls to this function
 	v.lock.Lock()
@@ -405,7 +406,8 @@ func (v *VolumeInfo) CopyTo(dest string) (err error) {
 
 // prepareVolume returns a VolumeInfo, filename parts, extension parts, and an error
 // compress -> encrypt/sign -> output
-func prepareVolume(ctx context.Context, j *JobInfo, pipe bool, isManifest bool) (*VolumeInfo, []string, []string, error) {
+// nolint:gocritic // Don't need to name the results
+func prepareVolume(ctx context.Context, j *JobInfo, pipe, isManifest bool) (*VolumeInfo, []string, []string, error) {
 	v, err := CreateSimpleVolume(ctx, pipe)
 	if err != nil {
 		return nil, nil, nil, err
@@ -416,12 +418,12 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe bool, isManifest bool) 
 	// Prepare the Encryption/Signing writer, if required
 	if j.EncryptKey != nil || j.SignKey != nil {
 		extensions = append(extensions, "pgp")
-		config := new(packet.Config)
-		config.DefaultCompressionAlgo = packet.CompressionNone // We will do our own, thank you very much!
-		config.DefaultCipher = packet.CipherAES256
+		pgpConfig := new(packet.Config)
+		pgpConfig.DefaultCompressionAlgo = packet.CompressionNone // We will do our own, thank you very much!
+		pgpConfig.DefaultCipher = packet.CipherAES256
 		fileHints := new(openpgp.FileHints)
 		fileHints.IsBinary = true
-		pgpWriter, err := openpgp.Encrypt(v.w, []*openpgp.Entity{j.EncryptKey}, j.SignKey, fileHints, config)
+		pgpWriter, err := openpgp.Encrypt(v.w, []*openpgp.Entity{j.EncryptKey}, j.SignKey, fileHints, pgpConfig)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -441,12 +443,12 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe bool, isManifest bool) 
 		v.w = v.cw
 		extensions = append([]string{"gz"}, extensions...)
 		printCompressCMD.Do(func() {
-			AppLogger.Infof("Will be using internal gzip compressor with compression level %d.", j.CompressionLevel)
+			log.AppLogger.Infof("Will be using internal gzip compressor with compression level %d.", j.CompressionLevel)
 		})
 	case "":
-		printCompressCMD.Do(func() { AppLogger.Infof("Will not be using any compression.") })
+		printCompressCMD.Do(func() { log.AppLogger.Infof("Will not be using any compression.") })
 	case ZfsCompressor:
-		printCompressCMD.Do(func() { AppLogger.Infof("Will send a ZFS compressed stream") })
+		printCompressCMD.Do(func() { log.AppLogger.Infof("Will send a ZFS compressed stream") })
 	default:
 		extensions = append([]string{compressorName}, extensions...)
 
@@ -462,7 +464,10 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe bool, isManifest bool) 
 		v.cmd.Stderr = os.Stderr
 
 		printCompressCMD.Do(func() {
-			AppLogger.Infof("Will be using the external binary %s for compression with compression level %d. The executing command will be: %s", j.Compressor, j.CompressionLevel, strings.Join(v.cmd.Args, " "))
+			log.AppLogger.Infof(
+				"Will be using the external binary %s for compression with compression level %d. The executing command will be: %s",
+				j.Compressor, j.CompressionLevel, strings.Join(v.cmd.Args, " "),
+			)
 		})
 
 		err = v.cmd.Start()
@@ -538,8 +543,8 @@ func CreateSimpleVolume(ctx context.Context, pipe bool) (*VolumeInfo, error) {
 	v := &VolumeInfo{
 		SHA256:     sha256.New(),
 		CRC32C:     crc32.New(crc32.MakeTable(crc32.Castagnoli)),
-		MD5:        md5.New(),
-		SHA1:       sha1.New(),
+		MD5:        md5.New(),  // nolint:gosec // MD5 not used for cryptographic purposes here
+		SHA1:       sha1.New(), // nolint:gosec // SHA1 not used for cryptographic purposes here
 		CreateTime: time.Now(),
 	}
 
@@ -549,11 +554,11 @@ func CreateSimpleVolume(ctx context.Context, pipe bool) (*VolumeInfo, error) {
 		v.w = v.pw
 		v.isOpened = true
 		v.usingPipe = true
-		if BackupUploadBucket != nil {
-			v.r = ratelimit.Reader(v.r, BackupUploadBucket)
+		if config.BackupUploadBucket != nil {
+			v.r = ratelimit.Reader(v.r, config.BackupUploadBucket)
 		}
 	} else {
-		tempFile, err := ioutil.TempFile(BackupTempdir, LogModuleName)
+		tempFile, err := ioutil.TempFile(config.BackupTempdir, config.ProgramName)
 		if err != nil {
 			return nil, err
 		}

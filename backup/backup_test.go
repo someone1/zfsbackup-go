@@ -24,8 +24,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/hex"
-	"errors"
 	"io"
 	"io/ioutil"
 	"os"
@@ -33,11 +31,7 @@ import (
 	"time"
 
 	"github.com/someone1/zfsbackup-go/backends"
-	"github.com/someone1/zfsbackup-go/helpers"
-)
-
-var (
-	errTest = errors.New("testing error")
+	"github.com/someone1/zfsbackup-go/files"
 )
 
 // Truly a useless backend
@@ -47,7 +41,7 @@ func (m *mockBackend) Init(ctx context.Context, conf *backends.BackendConfig, op
 	return nil
 }
 
-func (m *mockBackend) Upload(ctx context.Context, vol *helpers.VolumeInfo) error {
+func (m *mockBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 	// make sure we can read the volume
 	_, err := ioutil.ReadAll(vol)
 	return err
@@ -69,15 +63,7 @@ func (m *mockBackend) Delete(ctx context.Context, filename string) error { retur
 
 type errTestFunc func(error) bool
 
-func nilErrTest(e error) bool              { return e == nil }
-func errTestErrTest(e error) bool          { return e == errTest }
-func errInvalidPrefixErrTest(e error) bool { return e == backends.ErrInvalidPrefix }
-func errInvalidURIErrTest(e error) bool    { return e == backends.ErrInvalidURI }
-func nonNilErrTest(e error) bool           { return e != nil }
-func invalidByteErrTest(e error) bool {
-	_, ok := e.(hex.InvalidByteError)
-	return ok
-}
+func nilErrTest(e error) bool { return e == nil }
 
 func TestRetryUploadChainer(t *testing.T) {
 	_, goodVol, badVol, err := prepareTestVols()
@@ -86,7 +72,7 @@ func TestRetryUploadChainer(t *testing.T) {
 	}
 
 	testCases := []struct {
-		vol   *helpers.VolumeInfo
+		vol   *files.VolumeInfo
 		valid errTestFunc
 	}{
 		{
@@ -99,7 +85,7 @@ func TestRetryUploadChainer(t *testing.T) {
 		},
 	}
 
-	j := &helpers.JobInfo{
+	j := &files.JobInfo{
 		MaxParallelUploads: 1,
 		MaxBackoffTime:     5 * time.Second,
 		MaxRetryTime:       1 * time.Minute,
@@ -110,7 +96,7 @@ func TestRetryUploadChainer(t *testing.T) {
 		if err := b.Init(context.Background(), nil); err != nil {
 			t.Errorf("%d: Expected error %v, got %v", idx, nil, err)
 		} else {
-			in := make(chan *helpers.VolumeInfo, 1)
+			in := make(chan *files.VolumeInfo, 1)
 			out, wg := retryUploadChainer(context.Background(), in, b, j, "mock://")
 			in <- testCase.vol
 			close(in)
@@ -127,13 +113,13 @@ func TestRetryUploadChainer(t *testing.T) {
 	}
 }
 
-func prepareTestVols() (payload []byte, goodVol *helpers.VolumeInfo, badVol *helpers.VolumeInfo, err error) {
+func prepareTestVols() (payload []byte, goodVol, badVol *files.VolumeInfo, err error) {
 	payload = make([]byte, 10*1024*1024)
 	if _, err = rand.Read(payload); err != nil {
 		return
 	}
 	reader := bytes.NewReader(payload)
-	goodVol, err = helpers.CreateSimpleVolume(context.Background(), false)
+	goodVol, err = files.CreateSimpleVolume(context.Background(), false)
 	if err != nil {
 		return
 	}
@@ -146,7 +132,7 @@ func prepareTestVols() (payload []byte, goodVol *helpers.VolumeInfo, badVol *hel
 		return
 	}
 
-	badVol, err = helpers.CreateSimpleVolume(context.Background(), false)
+	badVol, err = files.CreateSimpleVolume(context.Background(), false)
 	if err != nil {
 		return
 	}
@@ -157,5 +143,5 @@ func prepareTestVols() (payload []byte, goodVol *helpers.VolumeInfo, badVol *hel
 
 	err = badVol.DeleteVolume()
 
-	return
+	return payload, goodVol, badVol, err
 }

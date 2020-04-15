@@ -18,23 +18,16 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package helpers
+package log
 
 import (
-	"io"
-	"os"
-
 	"github.com/op/go-logging"
+
+	"github.com/someone1/zfsbackup-go/config"
 )
 
 // LogModuleName is the module name for our application's logger.
-const LogModuleName = ProgramName
+const LogModuleName = config.ProgramName
 
 // AppLogger is our application's logger.
 var AppLogger = logging.MustGetLogger(LogModuleName)
-
-// Stdout is where to output standard messaging to
-var Stdout io.Writer = os.Stdout
-
-// JSONOutput will signal if we should dump the results to Stdout JSON formatted
-var JSONOutput bool = false
