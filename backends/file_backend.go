@@ -44,9 +44,9 @@ type FileBackend struct {
 func (f *FileBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Option) error {
 	f.conf = conf
 
-	cleanPrefix := strings.TrimPrefix(f.conf.TargetURI, "file://")
+	cleanPrefix := strings.TrimPrefix(f.conf.TargetURI, FileBackendPrefix+"://")
 	if cleanPrefix == f.conf.TargetURI {
-		return ErrInvalidPrefix
+		return ErrInvalidURI
 	}
 
 	absLocalPath, err := filepath.Abs(cleanPrefix)
@@ -93,6 +93,12 @@ func (f *FileBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 
 	_, err = io.Copy(w, vol)
 	if err != nil {
+		if closeErr := w.Close(); closeErr != nil {
+			log.AppLogger.Warningf("file backend: Error closing volume %s - %v", vol.ObjectName, err)
+		}
+		if deleteErr := os.Remove(destinationPath); deleteErr != nil {
+			log.AppLogger.Warningf("file backend: Error deleting failed upload file %s - %v", destinationPath, deleteErr)
+		}
 		log.AppLogger.Debugf("file backend: Error while copying volume %s - %v", vol.ObjectName, err)
 		return err
 	}

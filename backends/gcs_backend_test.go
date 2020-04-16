@@ -21,431 +21,67 @@
 package backends
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"io"
-	"io/ioutil"
-	"reflect"
+	"crypto/tls"
+	"net/http"
+	"os"
 	"testing"
-	"time"
 
-	"github.com/someone1/zfsbackup-go/files"
+	"cloud.google.com/go/storage"
+	"google.golang.org/api/option"
 )
 
-type gcsMockClient struct {
-	bucketErr error
-	err       error // For any function that returns an error, use this error
-	reader    io.ReadCloser
-	writer    io.WriteCloser
-	list      []string
-}
+func TestGCSBackend(t *testing.T) {
+	t.Parallel()
 
-func (g *gcsMockClient) BucketExists(ctx context.Context, bucket string) error {
-	return g.bucketErr
-}
-
-func (g *gcsMockClient) DeleteObject(ctx context.Context, bucket, object string) error {
-	return g.err
-}
-
-func (g *gcsMockClient) NewWriter(ctx context.Context, bucket, object string, crc32Hash uint32, chunkSize int) io.WriteCloser {
-	return g.writer
-}
-
-func (g *gcsMockClient) NewReader(ctx context.Context, bucket, object string) (io.ReadCloser, error) {
-	return g.reader, g.err
-}
-
-func (g *gcsMockClient) Close() error {
-	return g.err
-}
-
-func (g *gcsMockClient) ListBucket(ctx context.Context, bucket, prefix string) ([]string, error) {
-	return g.list, g.err
-}
-
-const (
-	testBucketGood = GoogleCloudStorageBackendPrefix + "://bucketname"
-)
-
-var (
-	validConfig = &BackendConfig{
-		TargetURI: testBucketGood,
+	if os.Getenv("GCS_FAKE_SERVER") == "" {
+		t.Skip("No test GCS Endpoint provided to test against")
 	}
 
-	validClient = &gcsMockClient{
-		err: nil,
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	gcsTestBucketName := "test_bucket"
+
+	// Setup Test Bucket
+	transCfg := &http.Transport{
+		// nolint:gosec // Purposely connecting to a local self-signed certificate endpoint
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
 	}
-)
-
-type gcsTestCase struct {
-	client *gcsMockClient
-	conf   *BackendConfig
-}
-
-func TestGCSGetBackendForURI(t *testing.T) {
-	b, err := GetBackendForURI(testBucketGood)
+	httpClient := &http.Client{Transport: transCfg}
+	client, err := storage.NewClient(ctx, option.WithEndpoint(os.Getenv("GCS_FAKE_SERVER")+"/storage/v1/"), option.WithHTTPClient(httpClient))
 	if err != nil {
-		t.Errorf("Error while trying to get backend: %v", err)
-	}
-	if _, ok := b.(*GoogleCloudStorageBackend); !ok {
-		t.Errorf("Expected to get a backend of type GoogleCloudStorageBackend, but did not.")
-	}
-}
-
-func TestGCSInit(t *testing.T) {
-	testCases := []struct {
-		testcase gcsTestCase
-		output   error
-		prefix   string
-	}{
-		{
-			testcase: gcsTestCase{
-				client: validClient,
-				conf:   validConfig,
-			},
-			output: nil,
-		},
-		{
-			testcase: gcsTestCase{
-				client: &gcsMockClient{
-					bucketErr: errTest,
-				},
-				conf: validConfig,
-			},
-			output: errTest,
-		},
-		{
-			testcase: gcsTestCase{
-				client: validClient,
-				conf: &BackendConfig{
-					TargetURI: "notgs://bucketname",
-				},
-			},
-			output: ErrInvalidURI,
-		},
-		{
-			testcase: gcsTestCase{
-				client: validClient,
-				conf: &BackendConfig{
-					TargetURI: "gs://bucketname/prefix",
-				},
-			},
-			output: nil,
-			prefix: "prefix",
-		},
+		t.Fatal(err)
 	}
 
-	for idx, c := range testCases {
-		b := &GoogleCloudStorageBackend{}
-		if err := b.Init(context.Background(), c.testcase.conf, WithGCSClient(c.testcase.client)); err != c.output {
-			t.Errorf("%d: Expected error %v, got %v", idx, c.output, err)
-		}
-		if b.prefix != c.prefix {
-			t.Errorf("%d: Expected prefix %v, got %v", idx, c.prefix, b.prefix)
-		}
-	}
-}
-func TestGCSClose(t *testing.T) {
-	testCases := []struct {
-		testcase gcsTestCase
-		output   error
-		in       <-chan *files.VolumeInfo
-	}{
-		{
-			testcase: gcsTestCase{
-				client: validClient,
-				conf:   validConfig,
-			},
-			output: nil,
-		},
-		{
-			testcase: gcsTestCase{
-				client: &gcsMockClient{
-					err: errTest,
-				},
-				conf: validConfig,
-			},
-			output: errTest,
-		},
+	if err = client.Bucket(gcsTestBucketName).Create(ctx, "test-project", nil); err != nil {
+		t.Fatalf("could not create bucket; %v", err)
 	}
 
-	for idx, c := range testCases {
-		b := &GoogleCloudStorageBackend{}
-		if err := b.Init(context.Background(), c.testcase.conf, WithGCSClient(c.testcase.client)); err != nil {
-			t.Errorf("%d: error setting up backend - %v", idx, err)
-		} else {
-			err = b.Close()
-			if err != c.output {
-				t.Errorf("%d: Expected %v, got %v", idx, c.output, err)
-			}
-		}
-	}
-}
+	defer func() {
+		// nolint:gocritic // Re-enable if this gets resolved: https://github.com/fsouza/fake-gcs-server/issues/214
+		// it := testBucket.Objects(ctx, nil)
+		// for {
+		// 	attrs, iErr := it.Next()
+		// 	if iErr == iterator.Done {
+		// 		break
+		// 	}
+		// 	if iErr != nil {
+		// 		t.Fatalf("could not list objects: %v", iErr)
+		// 	}
+		// 	if err = testBucket.Object(attrs.Name).Delete(ctx); err != nil {
+		// 		t.Errorf("could not delete object: %v", err)
+		// 	}
+		// }
+		// if err = client.Bucket(gcsTestBucketName).Delete(ctx); err != nil {
+		// 	t.Errorf("could not delete bucket: %v", err)
+		// }
+	}()
 
-func TestGCSPreDownload(t *testing.T) {
-	testCases := []struct {
-		testcase gcsTestCase
-		output   error
-	}{
-		{
-			testcase: gcsTestCase{
-				client: validClient,
-				conf:   validConfig,
-			},
-			output: nil,
-		},
-		{
-			testcase: gcsTestCase{
-				client: &gcsMockClient{
-					err: errTest,
-				},
-				conf: validConfig,
-			},
-			output: nil,
-		},
-	}
-
-	for idx, c := range testCases {
-		b := &GoogleCloudStorageBackend{}
-		if err := b.Init(context.Background(), c.testcase.conf, WithGCSClient(c.testcase.client)); err != nil {
-			t.Errorf("%d: error setting up backend - %v", idx, err)
-		} else {
-			err = b.PreDownload(context.Background(), nil)
-			if err != c.output {
-				t.Errorf("%d: Expected %v, got %v", idx, c.output, err)
-			}
-		}
-	}
-}
-
-func TestGCSDelete(t *testing.T) {
-	testCases := []struct {
-		testcase gcsTestCase
-		output   error
-	}{
-		{
-			testcase: gcsTestCase{
-				client: validClient,
-				conf:   validConfig,
-			},
-			output: nil,
-		},
-		{
-			testcase: gcsTestCase{
-				client: &gcsMockClient{
-					err: errTest,
-				},
-				conf: validConfig,
-			},
-			output: errTest,
-		},
-	}
-
-	for idx, c := range testCases {
-		b := &GoogleCloudStorageBackend{}
-		if err := b.Init(context.Background(), c.testcase.conf, WithGCSClient(c.testcase.client)); err != nil {
-			t.Errorf("%d: error setting up backend - %v", idx, err)
-		} else {
-			err = b.Delete(context.Background(), "")
-			if err != c.output {
-				t.Errorf("%d: Expected %v, got %v", idx, c.output, err)
-			}
-		}
-	}
-}
-
-func TestGCSList(t *testing.T) {
-	testList := []string{"l", "m", "n"}
-	testCases := []struct {
-		gcsTestCase
-		output error
-		list   []string
-	}{
-		{
-			gcsTestCase: gcsTestCase{
-				client: validClient,
-				conf:   validConfig,
-			},
-			output: nil,
-		},
-		{
-			gcsTestCase: gcsTestCase{
-				client: &gcsMockClient{
-					list: testList,
-				},
-				conf: validConfig,
-			},
-			output: nil,
-			list:   testList,
-		},
-		{
-			gcsTestCase: gcsTestCase{
-				client: &gcsMockClient{
-					err: errTest,
-				},
-				conf: validConfig,
-			},
-			output: errTest,
-		},
-	}
-
-	for idx, c := range testCases {
-		b := &GoogleCloudStorageBackend{}
-		if err := b.Init(context.Background(), c.conf, WithGCSClient(c.client)); err != nil {
-			t.Errorf("%d: error setting up backend - %v", idx, err)
-		} else {
-			list, lerr := b.List(context.Background(), "")
-			if lerr != c.output {
-				t.Errorf("%d: Expected error %v, got %v", idx, c.output, err)
-			}
-			if !reflect.DeepEqual(list, c.list) {
-				t.Errorf("%d: Expected list %v, got %v", idx, c.list, list)
-			}
-		}
-	}
-}
-
-func TestGCSDownload(t *testing.T) {
-	testPayLoad := make([]byte, 1024*1024)
-	if _, err := rand.Read(testPayLoad); err != nil {
-		t.Fatalf("could not read in random data for testing - %v", err)
-	}
-	reader := bytes.NewReader(testPayLoad)
-	testCases := []struct {
-		gcsTestCase
-		output error
-	}{
-		{
-			gcsTestCase: gcsTestCase{
-				client: &gcsMockClient{
-					reader: &closeReaderWrapper{reader},
-				},
-				conf: validConfig,
-			},
-			output: nil,
-		},
-		{
-			gcsTestCase: gcsTestCase{
-				client: &gcsMockClient{
-					err: errTest,
-				},
-				conf: validConfig,
-			},
-			output: errTest,
-		},
-	}
-
-	for idx, c := range testCases {
-		b := &GoogleCloudStorageBackend{}
-		if err := b.Init(context.Background(), c.conf, WithGCSClient(c.client)); err != nil {
-			t.Errorf("%d: error setting up backend - %v", idx, err)
-		} else {
-			r, lerr := b.Download(context.Background(), "")
-			if lerr != c.output {
-				t.Errorf("%d: Expected error %v, got %v", idx, c.output, err)
-			}
-			if lerr == nil {
-				testRead, terr := ioutil.ReadAll(r)
-				if terr != nil {
-					t.Errorf("%d: could not read from reader - %v", idx, terr)
-				}
-				if _, serr := reader.Seek(0, io.SeekStart); serr != nil {
-					t.Fatalf("%d: could not seek buffer back to 0 - %v", idx, serr)
-				}
-				if !reflect.DeepEqual(testPayLoad, testRead) {
-					t.Errorf("%d: read bytes not equal to given bytes", idx)
-				}
-			}
-		}
-	}
-}
-
-func TestGCSUpload(t *testing.T) {
-	testPayLoad, goodvol, badvol, err := prepareTestVols()
+	b, err := GetBackendForURI(GoogleCloudStorageBackendPrefix + "://bucket_name")
 	if err != nil {
-		t.Fatalf("error preparing volume for testing - %v", err)
-	}
-	readVerify := bytes.NewBuffer(nil)
-
-	testCases := []struct {
-		gcsTestCase
-		errTest errTestFunc
-		vol     *files.VolumeInfo
-	}{
-		{
-			gcsTestCase: gcsTestCase{
-				client: &gcsMockClient{
-					writer: &closeWriterWrapper{readVerify},
-				},
-				conf: &BackendConfig{
-					TargetURI:               testBucketGood,
-					MaxParallelUploads:      5,
-					MaxBackoffTime:          1 * time.Second,
-					MaxRetryTime:            5 * time.Second,
-					MaxParallelUploadBuffer: make(chan bool, 1),
-				},
-			},
-			errTest: nilErrTest,
-			vol:     goodvol,
-		},
-		{
-			gcsTestCase: gcsTestCase{
-				client: &gcsMockClient{
-					writer: &failWriter{},
-					err:    errTest,
-				},
-				conf: &BackendConfig{
-					TargetURI:               testBucketGood,
-					MaxParallelUploads:      5,
-					MaxBackoffTime:          1 * time.Second,
-					MaxRetryTime:            5 * time.Second,
-					MaxParallelUploadBuffer: make(chan bool, 1),
-				},
-			},
-			errTest: errTestErrTest,
-			vol:     goodvol,
-		},
-		{
-			gcsTestCase: gcsTestCase{
-				client: &gcsMockClient{
-					writer: &closeWriterWrapper{readVerify},
-				},
-				conf: &BackendConfig{
-					TargetURI:               testBucketGood,
-					MaxParallelUploads:      5,
-					MaxBackoffTime:          1 * time.Second,
-					MaxRetryTime:            5 * time.Second,
-					MaxParallelUploadBuffer: make(chan bool, 1),
-				},
-			},
-			errTest: nonNilErrTest,
-			vol:     badvol,
-		},
+		t.Fatalf("Error while trying to get backend: %v", err)
 	}
 
-	if err = goodvol.OpenVolume(); err != nil {
-		t.Errorf("could not open good volume due to error %v", err)
-	}
-
-	for idx, c := range testCases {
-		b := &GoogleCloudStorageBackend{}
-		if err := b.Init(context.Background(), c.conf, WithGCSClient(c.client)); err != nil {
-			t.Errorf("%d: error setting up backend - %v", idx, err)
-		} else {
-			if _, err := goodvol.Seek(0, io.SeekStart); err != nil {
-				t.Errorf("%d: could not seek - %v", idx, err)
-			}
-			readVerify.Reset()
-			if errResult := b.Upload(context.Background(), c.vol); !c.errTest(errResult) {
-				t.Errorf("%d: Unexpected error, got %v", idx, errResult)
-			} else if errResult == nil {
-				testRead := readVerify.Bytes()
-				if !reflect.DeepEqual(testPayLoad, testRead) {
-					t.Errorf("%d: read bytes not equal to given bytes", idx)
-				}
-			}
-		}
-	}
+	BackendTest(ctx, GoogleCloudStorageBackendPrefix, gcsTestBucketName, false, b, WithGoogleCloudStorageClient(client))(t)
 }

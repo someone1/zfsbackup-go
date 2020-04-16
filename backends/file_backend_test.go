@@ -21,19 +21,10 @@
 package backends
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"io"
 	"io/ioutil"
 	"os"
-	"path/filepath"
-	"reflect"
-	"strings"
 	"testing"
-	"time"
-
-	"github.com/someone1/zfsbackup-go/files"
 )
 
 func TestFileGetBackendForURI(t *testing.T) {
@@ -45,10 +36,6 @@ func TestFileGetBackendForURI(t *testing.T) {
 		t.Errorf("Expected to get a backend of type FileBackend, but did not.")
 	}
 }
-
-var (
-	validFileConfig = &BackendConfig{TargetURI: FileBackendPrefix + "://" + os.TempDir()}
-)
 
 func TestFileInit(t *testing.T) {
 	testCases := []struct {
@@ -65,7 +52,7 @@ func TestFileInit(t *testing.T) {
 		},
 		{
 			uri:     "notvalid://",
-			errTest: errInvalidPrefixErrTest,
+			errTest: errInvalidURIErrTest,
 		},
 		{
 			uri:     "file://this/should/not/exist",
@@ -85,214 +72,27 @@ func TestFileInit(t *testing.T) {
 	}
 }
 
-func TestFileClose(t *testing.T) {
-	b := &FileBackend{}
-	if err := b.Init(context.Background(), validFileConfig); err != nil {
-		t.Errorf("Expected error %v, got %v", nil, err)
-	} else {
-		err = b.Close()
-		if err != nil {
-			t.Errorf("Expected %v, got %v", nil, err)
-		}
-	}
-}
+func TestFileBackend(t *testing.T) {
+	t.Parallel()
 
-func TestFilePreDownload(t *testing.T) {
-	b := &FileBackend{}
-	if err := b.Init(context.Background(), validFileConfig); err != nil {
-		t.Errorf("Expected error %v, got %v", nil, err)
-	} else {
-		err = b.PreDownload(context.Background(), nil)
-		if err != nil {
-			t.Errorf("Expected nil error, got %v", err)
-		}
-	}
-}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-func TestFileDelete(t *testing.T) {
-	// Let's create a file to delete
-	w, err := ioutil.TempFile("", "filebackendtestfile")
+	tempPath, err := ioutil.TempDir("", t.Name())
 	if err != nil {
-		t.Errorf("Error trying to create a tempfile: %v", err)
+		t.Fatalf("could not create temp dir: %v", err)
 	}
-	defer os.Remove(w.Name())
 
-	tempName := strings.TrimPrefix(w.Name(), os.TempDir())
-
-	b := &FileBackend{}
-	if err := b.Init(context.Background(), validFileConfig); err != nil {
-		t.Errorf("Expected error %v, got %v", nil, err)
-	} else {
-		err = b.Delete(context.Background(), tempName)
-		if err != nil {
-			t.Errorf("Expected nil error, got %v", err)
+	defer func() {
+		if err = os.RemoveAll(tempPath); err != nil {
+			t.Errorf("could not clearn temp dir: %v", err)
 		}
+	}()
 
-		// Verify it happened
-		if _, err = os.Stat(w.Name()); !os.IsNotExist(err) {
-			t.Errorf("Expected does not exist error, got %v", err)
-		}
-	}
-}
-
-func TestFileList(t *testing.T) {
-	tempDir, err := ioutil.TempDir("", "filebackendtesttempdir")
+	b, err := GetBackendForURI(FileBackendPrefix + "://" + tempPath)
 	if err != nil {
-		t.Errorf("Error trying to create a tempdir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	w, err := ioutil.TempFile(tempDir, "filebackendtestfile")
-	if err != nil {
-		t.Errorf("Error trying to create a tempfile: %v", err)
-	}
-	defer os.Remove(w.Name())
-	w2, err := ioutil.TempFile(tempDir, "filebackendtestfileextended")
-	if err != nil {
-		t.Errorf("Error trying to create a tempfile: %v", err)
-	}
-	defer os.Remove(w2.Name())
-	cleanName := strings.TrimPrefix(w.Name(), tempDir+string(filepath.Separator))
-	cleanName2 := strings.TrimPrefix(w2.Name(), tempDir+string(filepath.Separator))
-
-	config := &BackendConfig{
-		TargetURI: "file://" + tempDir,
+		t.Fatalf("Error while trying to get backend: %v", err)
 	}
 
-	b := &FileBackend{}
-	if err := b.Init(context.Background(), config); err != nil {
-		t.Errorf("Expected error %v, got %v", nil, err)
-	} else {
-		l, err := b.List(context.Background(), "")
-		if err != nil {
-			t.Errorf("Expected nil error, got %v", err)
-		}
-
-		if len(l) != 2 {
-			t.Errorf("Expected only 2 files to list, got %d", len(l))
-		}
-
-		if l[0] != cleanName && l[1] != cleanName {
-			t.Errorf("Could not find an expected file in the provided list.")
-		}
-		if l[0] != cleanName2 && l[1] != cleanName2 {
-			t.Errorf("Could not find an expected file in the provided list.")
-		}
-
-		// Test with a known prefix
-		l, err = b.List(context.Background(), "filebackendtestfileextended")
-		if err != nil {
-			t.Errorf("Expected nil error, got %v", err)
-		}
-
-		if len(l) != 1 {
-			t.Errorf("Expected only 1 files to list, got %d", len(l))
-		}
-
-		if l[0] != cleanName2 {
-			t.Errorf("Could not find an expected file in the provided list.")
-		}
-	}
-}
-
-func TestFileDownload(t *testing.T) {
-	// Let's create a file to Get
-	w, err := ioutil.TempFile("", "filebackendtestfile")
-	if err != nil {
-		t.Errorf("Error trying to create a tempfile: %v", err)
-	}
-	defer os.Remove(w.Name())
-
-	testPayLoad := make([]byte, 1024*1024)
-	if _, err = rand.Read(testPayLoad); err != nil {
-		t.Fatalf("could not read in random data for testing - %v", err)
-	}
-	reader := bytes.NewReader(testPayLoad)
-	_, err = io.Copy(w, reader)
-	if err != nil {
-		t.Fatalf("could not write to temp file testing - %v", err)
-	}
-
-	err = w.Close()
-	if err != nil {
-		t.Fatalf("could not write temp file testing - %v", err)
-	}
-
-	tempName := strings.TrimPrefix(w.Name(), os.TempDir())
-
-	b := &FileBackend{}
-	if err := b.Init(context.Background(), validFileConfig); err != nil {
-		t.Errorf("Expected error %v, got %v", nil, err)
-	} else {
-		r, lerr := b.Download(context.Background(), tempName)
-		if lerr != nil {
-			t.Errorf("Expected nil error, got %v", lerr)
-		} else {
-			testRead, terr := ioutil.ReadAll(r)
-			if terr != nil {
-				t.Errorf("could not read from reader - %v", terr)
-			}
-			// Verify we got the right data back
-			if !reflect.DeepEqual(testPayLoad, testRead) {
-				t.Errorf("read bytes not equal to given bytes")
-			}
-		}
-	}
-}
-
-func TestFileUpload(t *testing.T) {
-	testPayLoad, goodVol, badVol, err := prepareTestVols()
-	if err != nil {
-		t.Fatalf("error preparing volumes for testing - %v", err)
-	}
-
-	tempDir, terr := ioutil.TempDir("", "zfsbackupfilebackendtest")
-	if terr != nil {
-		t.Fatalf("error preparing temp dir for rests - %v", terr)
-	}
-	defer os.RemoveAll(tempDir) // clean up
-
-	config := &BackendConfig{
-		TargetURI:               "file://" + tempDir,
-		MaxBackoffTime:          1 * time.Second,
-		MaxRetryTime:            5 * time.Second,
-		MaxParallelUploads:      5,
-		MaxParallelUploadBuffer: make(chan bool, 1),
-	}
-
-	testCases := []struct {
-		vol   *files.VolumeInfo
-		valid func(error) bool
-	}{
-		{
-			vol:   goodVol,
-			valid: nilErrTest,
-		},
-		{
-			vol:   badVol,
-			valid: nonNilErrTest,
-		},
-	}
-	if err = goodVol.OpenVolume(); err != nil {
-		t.Errorf("could not open good volume due to error %v", err)
-	}
-
-	for idx, testCase := range testCases {
-		b := &FileBackend{}
-		if err := b.Init(context.Background(), config); err != nil {
-			t.Errorf("%d: Expected error %v, got %v", idx, nil, err)
-		} else {
-			if errResult := b.Upload(context.Background(), testCase.vol); !testCase.valid(errResult) {
-				t.Errorf("%d: error %v did not pass validation function", idx, errResult)
-			} else if errResult == nil {
-				// Verify we have a file written where we expect it to be, read it in to be sure its the contents we want it to be
-				readVerify, rerr := ioutil.ReadFile(filepath.Join(tempDir, testCase.vol.ObjectName))
-				if rerr != nil {
-					t.Errorf("%d: expected file does not exist as we expect it to - %v", idx, rerr)
-				} else if !reflect.DeepEqual(testPayLoad, readVerify) {
-					t.Errorf("%d: read bytes not equal to given bytes", idx)
-				}
-			}
-		}
-	}
+	BackendTest(ctx, FileBackendPrefix, tempPath, true, b)(t)
 }

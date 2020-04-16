@@ -21,13 +21,11 @@
 package backends
 
 import (
-	"bytes"
 	"context"
-	"io"
 	"net/url"
 	"os"
-	"reflect"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/storage"
 	"github.com/Azure/azure-storage-blob-go/azblob"
@@ -45,10 +43,11 @@ func TestAzureGetBackendForURI(t *testing.T) {
 
 const (
 	azureTestBucketName = "azuretestbucket"
-	testSASURI          = "https://storageaccount.blob.core.windows.net/azuretestbucket"
 )
 
 func TestAzureBackend(t *testing.T) {
+	t.Parallel()
+
 	if os.Getenv("AZURE_CUSTOM_ENDPOINT") == "" {
 		t.Skip("No custom Azure Endpoint provided to test against")
 	}
@@ -61,12 +60,8 @@ func TestAzureBackend(t *testing.T) {
 		t.Fatalf("could not set environmental variable due to error: %v", err)
 	}
 
-	b, err := GetBackendForURI(AzureBackendPrefix + "://bucket_name")
-	if err != nil {
-		t.Fatalf("Error while trying to get backend: %v", err)
-	}
-
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	credential, err := azblob.NewSharedKeyCredential(storage.StorageEmulatorAccountName, storage.StorageEmulatorAccountKey)
 	if err != nil {
@@ -84,145 +79,34 @@ func TestAzureBackend(t *testing.T) {
 	}
 
 	defer func() {
-		if _, err := containerSvc.Delete(ctx, azblob.ContainerAccessConditions{}); err != nil {
+		if _, err = containerSvc.Delete(ctx, azblob.ContainerAccessConditions{}); err != nil {
 			t.Logf("could not delete container: %v", err)
 		}
 	}()
 
-	testPayLoad, goodVol, badVol, perr := prepareTestVols()
-	if perr != nil {
-		t.Fatalf("Error while creating test volumes: %v", perr)
+	b, err := GetBackendForURI(AzureBackendPrefix + "://bucket_name")
+	if err != nil {
+		t.Fatalf("Error while trying to get backend: %v", err)
 	}
-	defer func() {
-		if err := goodVol.DeleteVolume(); err != nil {
-			t.Errorf("could not delete good vol - %v", err)
-		}
-	}()
 
-	// nolint:dupl // Similar but not the same
-	t.Run("Init", func(t *testing.T) {
-		// Bad TargetURI
-		conf := &BackendConfig{
-			TargetURI:               "notvalid://" + azureTestBucketName,
-			UploadChunkSize:         8 * 1024 * 1024,
-			MaxParallelUploads:      5,
-			MaxParallelUploadBuffer: make(chan bool, 5),
-		}
-		err := b.Init(ctx, conf)
-		if err != ErrInvalidURI {
-			t.Fatalf("Issue initilazing AzureBackend: %v", err)
-		}
+	BackendTest(ctx, AzureBackendPrefix, azureTestBucketName, false, b)(t)
 
-		// Good TargetURI
-		conf = &BackendConfig{
-			TargetURI:               AzureBackendPrefix + "://" + azureTestBucketName,
-			UploadChunkSize:         8 * 1024 * 1024,
-			MaxParallelUploads:      5,
-			MaxParallelUploadBuffer: make(chan bool, 5),
-		}
-		err = b.Init(ctx, conf)
-		if err != nil {
-			t.Fatalf("Issue initilazing AzureBackend: %v", err)
-		}
-	})
-
-	t.Run("Upload", func(t *testing.T) {
-		err := goodVol.OpenVolume()
-		if err != nil {
-			t.Errorf("could not open good volume due to error %v", err)
-		}
-		defer goodVol.Close()
-		err = b.Upload(ctx, goodVol)
-		if err != nil {
-			t.Fatalf("Issue uploading goodvol: %v", err)
-		}
-	})
-
-	t.Run("List", func(t *testing.T) {
-		names, err := b.List(ctx, "")
-		if err != nil {
-			t.Fatalf("Issue listing container: %v\n%v", err, names)
-		}
-
-		if len(names) != 1 {
-			t.Fatalf("Expecting exactly one name from list, got %d instead.", len(names))
-		}
-
-		if names[0] != goodVol.ObjectName {
-			t.Fatalf("Expecting name '%s', got '%s' instead", goodVol.ObjectName, names[0])
-		}
-
-		names, err = b.List(ctx, "badprefix")
-		if err != nil {
-			t.Fatalf("Issue listing container: %v", err)
-		}
-
-		if len(names) != 0 {
-			t.Fatalf("Expecting exactly zero names from list, got %d instead.", len(names))
-		}
-	})
-
-	t.Run("PreDownload", func(t *testing.T) {
-		err := b.PreDownload(ctx, nil)
-		if err != nil {
-			t.Fatalf("Issue calling PreDownload on AzureBackend: %v", err)
-		}
-	})
-
-	// nolint:dupl // Similar but not the same
-	t.Run("Download", func(t *testing.T) {
-		r, err := b.Download(ctx, goodVol.ObjectName)
-		if err != nil {
-			t.Fatalf("Issue calling Download on AzureBackend: %v", err)
-		}
-		defer r.Close()
-
-		buf := bytes.NewBuffer(nil)
-		_, err = io.Copy(buf, r)
-		if err != nil {
-			t.Fatalf("error reading: %v", err)
-		}
-
-		if !reflect.DeepEqual(testPayLoad, buf.Bytes()) {
-			t.Fatalf("downloaded object does not equal expected payload")
-		}
-
-		_, err = b.Download(ctx, badVol.ObjectName)
-		if err == nil {
-			t.Fatalf("expecting non-nil response, got nil instead")
-		}
-	})
-
-	t.Run("Delete", func(t *testing.T) {
-		err := b.Delete(ctx, goodVol.ObjectName)
-		if err != nil {
-			t.Fatalf("Issue calling Delete on AzureBackend: %v", err)
-		}
-
-		names, err := b.List(ctx, "")
-		if err != nil {
-			t.Fatalf("Issue listing container: %v", err)
-		}
-
-		if len(names) != 0 {
-			t.Fatalf("Expecting exactly zero names from list, got %d instead.", len(names))
-		}
-	})
-
-	t.Run("Close", func(t *testing.T) {
-		err := b.Close()
-		if err != nil {
-			t.Fatalf("Issue closing AzureBackend: %v", err)
-		}
-	})
+	if err = os.Unsetenv("AZURE_ACCOUNT_KEY"); err != nil {
+		t.Fatalf("could not unset env var - %v", err)
+	}
+	if err = os.Unsetenv("AZURE_ACCOUNT_NAME"); err != nil {
+		t.Fatalf("could not unset env var - %v", err)
+	}
 
 	t.Run("SASURI", func(t *testing.T) {
-		// We can't test SAS URI's against azurite since it's not yet supported, but we can at least test
-		// that it parses it out correctly...
-		// https://github.com/Azure/Azurite/issues/8
+		b, err = GetBackendForURI(AzureBackendPrefix + "://bucket_name")
+		if err != nil {
+			t.Fatalf("Error while trying to get backend: %v", err)
+		}
 
-		var err error
-		if err = os.Setenv("AZURE_SAS_URI", testSASURI); err != nil {
+		sasURI := generateSASURI(t, containerSvc.String(), azureTestBucketName, storage.StorageEmulatorAccountName, storage.StorageEmulatorAccountKey, 3600)
+
+		if err = os.Setenv("AZURE_SAS_URI", sasURI); err != nil {
 			t.Fatalf("could not set environmental variable due to error: %v", err)
 		}
 
@@ -238,29 +122,38 @@ func TestAzureBackend(t *testing.T) {
 			t.Errorf("Expected container mismatch error initilazing AzureBackend w/ SAS URI, got %v", err)
 		}
 
-		// Should receive a ResourceNotFound error if we actually try a valid init
-		conf = &BackendConfig{
-			TargetURI:               AzureBackendPrefix + "://" + azureTestBucketName,
-			UploadChunkSize:         8 * 1024 * 1024,
-			MaxParallelUploads:      5,
-			MaxParallelUploadBuffer: make(chan bool, 5),
-		}
-		err = b.Init(ctx, conf)
-		if err != nil {
-			if serr, ok := err.(azblob.StorageError); ok {
-				if serr.ServiceCode() != azblob.ServiceCodeResourceNotFound {
-					t.Errorf("Expected `ResourceNotFound` error but got `%v` instead", serr.ServiceCode())
-				}
-			} else {
-				t.Errorf("Expected a azblob.StorageError but got something else: %v", err)
-			}
-		} else {
-			t.Fatalf("Expected non-nil error initilazing AzureBackend w/ SAS URI")
-		}
+		BackendTest(ctx, AzureBackendPrefix, azureTestBucketName, true, b)(t)
 
 		// Get rid of the env variable
 		if err = os.Unsetenv("AZURE_SAS_URI"); err != nil {
 			t.Fatalf("could not unset environmental variable due to error: %v", err)
 		}
 	})
+}
+
+func generateSASURI(t *testing.T, svcURL, container, accountName, key string, expireSecs int) string {
+	t.Helper()
+
+	perms := azblob.ContainerSASPermissions{Add: true, Create: true, Delete: true, List: true, Read: true, Write: true}
+	sigValues := azblob.BlobSASSignatureValues{
+		Version:       "2019-07-07",
+		Protocol:      azblob.SASProtocolHTTPSandHTTP,
+		Permissions:   perms.String(),
+		ExpiryTime:    time.Now().Add(time.Second * time.Duration(expireSecs)).UTC(),
+		ContainerName: container,
+	}
+	creds, err := azblob.NewSharedKeyCredential(accountName, key)
+	if err != nil {
+		t.Fatalf("could not generate creds: %v", err)
+	}
+
+	params, err := sigValues.NewSASQueryParameters(creds)
+	if err != nil {
+		t.Fatalf("could not generate params: %v", err)
+	}
+
+	u, _ := url.Parse(svcURL)
+	u.RawQuery = params.Encode()
+
+	return u.String()
 }

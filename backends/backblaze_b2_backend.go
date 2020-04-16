@@ -101,7 +101,12 @@ func (b *B2Backend) Init(ctx context.Context, conf *BackendConfig, opts ...Optio
 }
 
 // Upload will upload the provided volume to this B2Backend's configured bucket+prefix
+// It utilizes B2 Large File Upload API to upload chunks of a single file concurrently. Partial
+// uploads need to be manually cleaned, which the b2 Go client should take care of for us.
 func (b *B2Backend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	// We will be doing multipart uploads, no need to allow multiple calls of Upload to initiate new uploads.
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
@@ -111,13 +116,14 @@ func (b *B2Backend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 
 	w.ConcurrentUploads = b.conf.MaxParallelUploads
 	w.ChunkSize = b.conf.UploadChunkSize
-	w.Resume = true
 
 	sha1Opt := b2.WithAttrsOption(&b2.Attrs{SHA1: vol.SHA1Sum})
 	sha1Opt(w)
+	b2.WithCancelOnError(func() context.Context { return ctx }, func(err error) {
+		log.AppLogger.Warningf("b2 backend: Error canceling large file upload %s - %v", vol.ObjectName, err)
+	})
 
 	if _, err := io.Copy(w, vol); err != nil {
-		w.Close()
 		log.AppLogger.Debugf("b2 backend: Error while uploading volume %s - %v", vol.ObjectName, err)
 		return err
 	}
@@ -127,7 +133,7 @@ func (b *B2Backend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 
 // Delete will delete the object with the given name from the configured bucket
 func (b *B2Backend) Delete(ctx context.Context, name string) error {
-	return b.bucketCli.Object(name).Delete(ctx)
+	return b.bucketCli.Object(b.prefix + name).Delete(ctx)
 }
 
 // PreDownload will do nothing for this backend.
@@ -137,7 +143,9 @@ func (b *B2Backend) PreDownload(ctx context.Context, keys []string) error {
 
 // Download will download the requseted object which can be read from the returned io.ReadCloser
 func (b *B2Backend) Download(ctx context.Context, name string) (io.ReadCloser, error) {
-	return b.bucketCli.Object(name).NewReader(ctx), nil
+	r := b.bucketCli.Object(b.prefix + name).NewReader(ctx)
+	_, err := r.Read(make([]byte, 0))
+	return r, err
 }
 
 // Close will release any resources used by the B2 backend.
@@ -150,10 +158,10 @@ func (b *B2Backend) Close() error {
 // a list of object names, filtering by the provided prefix.
 func (b *B2Backend) List(ctx context.Context, prefix string) ([]string, error) {
 	var l []string
-	iter := b.bucketCli.List(ctx, b2.ListPrefix(prefix))
+	iter := b.bucketCli.List(ctx, b2.ListPrefix(b.prefix+prefix))
 	for iter.Next() {
 		obj := iter.Object()
-		l = append(l, obj.Name())
+		l = append(l, strings.TrimPrefix(obj.Name(), b.prefix))
 	}
 	if err := iter.Err(); err != nil {
 		return nil, err

@@ -249,7 +249,7 @@ func (a *AWSS3Backend) Upload(ctx context.Context, vol *files.VolumeInfo) error 
 func (a *AWSS3Backend) Delete(ctx context.Context, key string) error {
 	_, err := a.client.DeleteObjectWithContext(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(a.bucketName),
-		Key:    aws.String(key),
+		Key:    aws.String(a.prefix + key),
 	})
 
 	return err
@@ -266,6 +266,7 @@ func (a *AWSS3Backend) PreDownload(ctx context.Context, keys []string) error {
 	var bytesToRestore int64
 	log.AppLogger.Debugf("s3 backend: will use the %s restore tier when trying to restore from Glacier.", restoreTier)
 	for _, key := range keys {
+		key = a.prefix + key
 		resp, err := a.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 			Bucket: aws.String(a.bucketName),
 			Key:    aws.String(key),
@@ -332,7 +333,7 @@ func (a *AWSS3Backend) PreDownload(ctx context.Context, keys []string) error {
 func (a *AWSS3Backend) Download(ctx context.Context, key string) (io.ReadCloser, error) {
 	resp, err := a.client.GetObjectWithContext(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(a.bucketName),
-		Key:    aws.String(key),
+		Key:    aws.String(a.prefix + key),
 	})
 	if err != nil {
 		return nil, err
@@ -353,7 +354,7 @@ func (a *AWSS3Backend) List(ctx context.Context, prefix string) ([]string, error
 	resp, err := a.client.ListObjectsV2WithContext(ctx, &s3.ListObjectsV2Input{
 		Bucket:  aws.String(a.bucketName),
 		MaxKeys: aws.Int64(1000),
-		Prefix:  aws.String(prefix),
+		Prefix:  aws.String(a.prefix + prefix),
 	})
 	if err != nil {
 		return nil, err
@@ -362,7 +363,7 @@ func (a *AWSS3Backend) List(ctx context.Context, prefix string) ([]string, error
 	l := make([]string, 0, 1000)
 	for {
 		for _, obj := range resp.Contents {
-			l = append(l, *obj.Key)
+			l = append(l, strings.TrimPrefix(*obj.Key, a.prefix))
 		}
 
 		if !*resp.IsTruncated {
