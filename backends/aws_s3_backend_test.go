@@ -24,11 +24,8 @@ package backends
 // Expectation is that environment variables will be set properly to run tests with
 
 import (
-	"bytes"
 	"context"
-	"io"
 	"os"
-	"reflect"
 	"strconv"
 	"testing"
 
@@ -482,6 +479,8 @@ func TestS3PreDownload(t *testing.T) {
 }
 
 func TestS3Backend(t *testing.T) {
+	t.Parallel()
+
 	if os.Getenv("AWS_S3_CUSTOM_ENDPOINT") == "" {
 		t.Skip("No custom S3 Endpoint provided to test against")
 	}
@@ -491,7 +490,9 @@ func TestS3Backend(t *testing.T) {
 		t.Fatalf("Error while trying to get backend: %v", err)
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	awsconf := aws.NewConfig().
 		WithS3ForcePathStyle(true).
 		WithEndpoint(os.Getenv("AWS_S3_CUSTOM_ENDPOINT"))
@@ -520,130 +521,5 @@ func TestS3Backend(t *testing.T) {
 		}
 	}()
 
-	testPayLoad, goodVol, badVol, perr := prepareTestVols()
-	if perr != nil {
-		t.Fatalf("Error while creating test volumes: %v", perr)
-	}
-	defer func() {
-		if err := goodVol.DeleteVolume(); err != nil {
-			t.Errorf("could not delete good vol - %v", err)
-		}
-	}()
-
-	// nolint:dupl // Similar but not the same
-	t.Run("Init", func(t *testing.T) {
-		// Bad TargetURI
-		conf := &BackendConfig{
-			TargetURI:               "notvalid://" + s3TestBucketName,
-			UploadChunkSize:         8 * 1024 * 1024,
-			MaxParallelUploads:      5,
-			MaxParallelUploadBuffer: make(chan bool, 5),
-		}
-		err := b.Init(ctx, conf)
-		if err != ErrInvalidURI {
-			t.Fatalf("Issue initilazing S3Backend: %v", err)
-		}
-
-		// Good TargetURI
-		conf = &BackendConfig{
-			TargetURI:               AWSS3BackendPrefix + "://" + s3TestBucketName,
-			UploadChunkSize:         8 * 1024 * 1024,
-			MaxParallelUploads:      5,
-			MaxParallelUploadBuffer: make(chan bool, 5),
-		}
-		err = b.Init(ctx, conf)
-		if err != nil {
-			t.Fatalf("Issue initilazing S3Backend: %v", err)
-		}
-	})
-
-	t.Run("Upload", func(t *testing.T) {
-		err := goodVol.OpenVolume()
-		if err != nil {
-			t.Errorf("could not open good volume due to error %v", err)
-		}
-		defer goodVol.Close()
-		err = b.Upload(ctx, goodVol)
-		if err != nil {
-			t.Fatalf("Issue uploading goodvol: %v", err)
-		}
-	})
-
-	t.Run("List", func(t *testing.T) {
-		names, err := b.List(ctx, "")
-		if err != nil {
-			t.Fatalf("Issue listing container: %v", err)
-		}
-
-		if len(names) != 1 {
-			t.Fatalf("Expecting exactly one name from list, got %d instead.", len(names))
-		}
-
-		if names[0] != goodVol.ObjectName {
-			t.Fatalf("Expecting name '%s', got '%s' instead", goodVol.ObjectName, names[0])
-		}
-
-		names, err = b.List(ctx, "badprefix")
-		if err != nil {
-			t.Fatalf("Issue listing container: %v", err)
-		}
-
-		if len(names) != 0 {
-			t.Fatalf("Expecting exactly zero names from list, got %d instead.", len(names))
-		}
-	})
-
-	t.Run("PreDownload", func(t *testing.T) {
-		err := b.PreDownload(ctx, nil)
-		if err != nil {
-			t.Fatalf("Issue calling PreDownload on S3Backend: %v", err)
-		}
-	})
-
-	// nolint:dupl // Similar but not the same
-	t.Run("Download", func(t *testing.T) {
-		r, err := b.Download(ctx, goodVol.ObjectName)
-		if err != nil {
-			t.Fatalf("Issue calling Download on S3Backend: %v", err)
-		}
-		defer r.Close()
-
-		buf := bytes.NewBuffer(nil)
-		_, err = io.Copy(buf, r)
-		if err != nil {
-			t.Fatalf("error reading: %v", err)
-		}
-
-		if !reflect.DeepEqual(testPayLoad, buf.Bytes()) {
-			t.Fatalf("downloaded object does not equal expected payload")
-		}
-
-		_, err = b.Download(ctx, badVol.ObjectName)
-		if err == nil {
-			t.Fatalf("expecting non-nil response, got nil instead")
-		}
-	})
-
-	t.Run("Delete", func(t *testing.T) {
-		err := b.Delete(ctx, goodVol.ObjectName)
-		if err != nil {
-			t.Fatalf("Issue calling Delete on AzureBackend: %v", err)
-		}
-
-		names, err := b.List(ctx, "")
-		if err != nil {
-			t.Fatalf("Issue listing container: %v", err)
-		}
-
-		if len(names) != 0 {
-			t.Fatalf("Expecting exactly zero names from list, got %d instead.", len(names))
-		}
-	})
-
-	t.Run("Close", func(t *testing.T) {
-		err := b.Close()
-		if err != nil {
-			t.Fatalf("Issue closing S3Backend: %v", err)
-		}
-	})
+	BackendTest(ctx, AWSS3BackendPrefix, s3TestBucketName, false, b)(t)
 }

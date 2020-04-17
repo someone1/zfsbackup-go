@@ -13,15 +13,12 @@ sudo dd if=/dev/urandom of=/tank/data/c bs=256 count=409600
 sudo zfs snapshot tank/data@c
 
 # Setup Docker containers
-sudo docker pull arafato/azurite
+sudo docker pull mcr.microsoft.com/azure-storage/azurite
 sudo docker pull minio/minio
-sudo docker run -d -p 10000:10000 --rm --name azurite arafato/azurite
+sudo docker pull fsouza/fake-gcs-server
+sudo docker run -d -p 10000:10000 --rm --name azurite mcr.microsoft.com/azure-storage/azurite azurite-blob --blobHost 0.0.0.0
 sudo docker run -d -p 9000:9000 --rm --name minio minio/minio server /data
-
-# Setup env variables from Docker containers
-sleep 10
-export AWS_ACCESS_KEY_ID=minioadmin
-export AWS_SECRET_ACCESS_KEY=minioadmin
+sudo docker run -d -p 4443:4443 --rm --name fake-gcs-server fsouza/fake-gcs-server -public-host localhost
 
 # PGP Test keys
 cat >test <<EOF

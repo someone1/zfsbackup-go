@@ -113,7 +113,7 @@ func (a *AzureBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Op
 	} else {
 		credential, err := azblob.NewSharedKeyCredential(a.accountName, a.accountKey)
 		if err != nil {
-			return errors.Wrap(err, "failed to initilze SAS credential")
+			return errors.Wrap(err, "failed to initilze Azure credential")
 		}
 		destURL, err := url.Parse(a.azureURL)
 		if err != nil {
@@ -225,7 +225,7 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error 
 
 // Delete will delete the given object from the configured container
 func (a *AzureBackend) Delete(ctx context.Context, name string) error {
-	blobURL := a.containerSvc.NewBlobURL(name)
+	blobURL := a.containerSvc.NewBlobURL(a.prefix + name)
 	_, err := blobURL.Delete(ctx, azblob.DeleteSnapshotsOptionNone, azblob.BlobAccessConditions{})
 	return err
 }
@@ -237,7 +237,7 @@ func (a *AzureBackend) PreDownload(ctx context.Context, keys []string) error {
 
 // Download will download the requseted object which can be read from the returned io.ReadCloser
 func (a *AzureBackend) Download(ctx context.Context, name string) (io.ReadCloser, error) {
-	blobURL := a.containerSvc.NewBlobURL(name)
+	blobURL := a.containerSvc.NewBlobURL(a.prefix + name)
 	resp, err := blobURL.Download(ctx, 0, 0, azblob.BlobAccessConditions{}, false)
 	if err != nil {
 		return nil, err
@@ -257,7 +257,7 @@ func (a *AzureBackend) List(ctx context.Context, prefix string) ([]string, error
 
 	for marker := (azblob.Marker{}); marker.NotDone(); {
 		resp, err := a.containerSvc.ListBlobsFlatSegment(ctx, marker, azblob.ListBlobsSegmentOptions{
-			Prefix:     prefix,
+			Prefix:     a.prefix + prefix,
 			MaxResults: 5000,
 		})
 		if err != nil {
@@ -265,7 +265,7 @@ func (a *AzureBackend) List(ctx context.Context, prefix string) ([]string, error
 		}
 
 		for idx := range resp.Segment.BlobItems {
-			l = append(l, resp.Segment.BlobItems[idx].Name)
+			l = append(l, strings.TrimPrefix(resp.Segment.BlobItems[idx].Name, a.prefix))
 		}
 
 		marker = resp.NextMarker

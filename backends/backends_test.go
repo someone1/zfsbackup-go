@@ -27,6 +27,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -37,52 +38,11 @@ var (
 	errTest = errors.New("used for testing")
 )
 
-type closeReaderWrapper struct {
-	r io.ReadSeeker
-}
-
-func (c *closeReaderWrapper) Read(b []byte) (int, error) {
-	return c.r.Read(b)
-}
-
-func (c *closeReaderWrapper) Close() error {
-	return nil
-}
-
-func (c *closeReaderWrapper) Seek(offset int64, whence int) (int64, error) {
-	return c.r.Seek(offset, whence)
-}
-
-type closeWriterWrapper struct {
-	w io.Writer
-}
-
-func (c *closeWriterWrapper) Close() error {
-	return nil
-}
-
-func (c *closeWriterWrapper) Write(p []byte) (int, error) {
-	return c.w.Write(p)
-}
-
-type failWriter struct {
-}
-
-func (f *failWriter) Close() error {
-	return nil
-}
-
-func (f *failWriter) Write(p []byte) (int, error) {
-	return 0, errTest
-}
-
 type errTestFunc func(error) bool
 
-func nilErrTest(e error) bool              { return e == nil }
-func errTestErrTest(e error) bool          { return e == errTest }
-func errInvalidPrefixErrTest(e error) bool { return e == ErrInvalidPrefix }
-func errInvalidURIErrTest(e error) bool    { return e == ErrInvalidURI }
-func nonNilErrTest(e error) bool           { return e != nil }
+func nilErrTest(e error) bool           { return e == nil }
+func errTestErrTest(e error) bool       { return e == errTest }
+func errInvalidURIErrTest(e error) bool { return e == ErrInvalidURI }
 func invalidByteErrTest(e error) bool {
 	_, ok := e.(hex.InvalidByteError)
 	return ok
@@ -132,5 +92,154 @@ func TestGetBackendForURI(t *testing.T) {
 	_, err = GetBackendForURI("thisisinvalid")
 	if err != ErrInvalidURI {
 		t.Errorf("Expecting err %v, got %v for invalid URI", ErrInvalidURI, err)
+	}
+}
+
+func BackendTest(ctx context.Context, prefix, uri string, skipPrefix bool, b Backend, opts ...Option) func(*testing.T) {
+	return func(t *testing.T) {
+		testPayLoad, goodVol, badVol, perr := prepareTestVols()
+		if perr != nil {
+			t.Fatalf("Error while creating test volumes: %v", perr)
+		}
+		defer func() {
+			if err := goodVol.DeleteVolume(); err != nil {
+				t.Errorf("could not delete good vol - %v", err)
+			}
+		}()
+
+		t.Run("Init", func(t *testing.T) {
+			// Bad TargetURI
+			conf := &BackendConfig{
+				TargetURI:               "notvalid://" + uri,
+				UploadChunkSize:         8 * 1024 * 1024,
+				MaxParallelUploads:      5,
+				MaxParallelUploadBuffer: make(chan bool, 5),
+			}
+			err := b.Init(ctx, conf)
+			if err != ErrInvalidURI {
+				t.Fatalf("Expected Invalid URI error, got %v", err)
+			}
+
+			// Good TargetURI
+			conf = &BackendConfig{
+				TargetURI:               prefix + "://" + uri,
+				UploadChunkSize:         8 * 1024 * 1024,
+				MaxParallelUploads:      5,
+				MaxParallelUploadBuffer: make(chan bool, 5),
+			}
+			err = b.Init(ctx, conf, opts...)
+			if err != nil {
+				t.Fatalf("Issue initilazing backend: %v", err)
+			}
+
+			if !skipPrefix {
+				// Good TargetURI with URI prefix
+				uri += "/prefix/"
+				conf = &BackendConfig{
+					TargetURI:               prefix + "://" + uri,
+					UploadChunkSize:         8 * 1024 * 1024,
+					MaxParallelUploads:      5,
+					MaxParallelUploadBuffer: make(chan bool, 5),
+				}
+				err = b.Init(ctx, conf, opts...)
+				if err != nil {
+					t.Fatalf("Issue initilazing backend: %v", err)
+				}
+			}
+		})
+
+		t.Run("Upload", func(t *testing.T) {
+			err := goodVol.OpenVolume()
+			if err != nil {
+				t.Errorf("could not open good volume due to error %v", err)
+			}
+			defer goodVol.Close()
+			err = b.Upload(ctx, goodVol)
+			if err != nil {
+				t.Fatalf("Issue uploading goodvol: %v", err)
+			}
+
+			err = b.Upload(ctx, badVol)
+			if err == nil {
+				t.Errorf("Expecting non-nil error uploading badvol, got nil instead.")
+			}
+		})
+
+		t.Run("List", func(t *testing.T) {
+			names, err := b.List(ctx, "")
+			if err != nil {
+				t.Fatalf("Issue listing backend: %v", err)
+			}
+
+			if len(names) != 1 {
+				t.Fatalf("Expecting exactly one name from list, got %d instead.", len(names))
+			}
+
+			if names[0] != goodVol.ObjectName {
+				t.Fatalf("Expecting name '%s', got '%s' instead", goodVol.ObjectName, names[0])
+			}
+
+			names, err = b.List(ctx, "badprefix")
+			if err != nil {
+				t.Fatalf("Issue listing container: %v", err)
+			}
+
+			if len(names) != 0 {
+				t.Fatalf("Expecting exactly zero names from list, got %d instead.", len(names))
+			}
+		})
+
+		t.Run("PreDownload", func(t *testing.T) {
+			err := b.PreDownload(ctx, []string{goodVol.ObjectName})
+			if err != nil {
+				t.Fatalf("Issue calling PreDownload: %v", err)
+			}
+		})
+
+		t.Run("Download", func(t *testing.T) {
+			r, err := b.Download(ctx, goodVol.ObjectName)
+			if err != nil {
+				t.Fatalf("Issue calling Download: %v", err)
+			}
+			defer r.Close()
+
+			buf := bytes.NewBuffer(nil)
+			_, err = io.Copy(buf, r)
+			if err != nil {
+				t.Fatalf("error reading: %v", err)
+			}
+
+			if !reflect.DeepEqual(testPayLoad, buf.Bytes()) {
+				t.Fatalf("downloaded object does not equal expected payload")
+			}
+
+			_, err = b.Download(ctx, badVol.ObjectName)
+			if err == nil {
+				t.Fatalf("expecting non-nil response, got nil instead")
+			}
+		})
+
+		t.Run("Delete", func(t *testing.T) {
+			err := b.Delete(ctx, goodVol.ObjectName)
+			if err != nil {
+				t.Errorf("Issue calling Delete: %v", err)
+			}
+
+			names, err := b.List(ctx, "")
+			if err != nil {
+				t.Errorf("Issue listing backend: %v", err)
+			}
+
+			if len(names) != 0 {
+				t.Errorf("Expecting exactly zero names from list, got %d instead.", len(names))
+			}
+		})
+
+		t.Run("Close", func(t *testing.T) {
+			err := b.Close()
+			if err != nil {
+				t.Fatalf("Issue closing backend: %v", err)
+			}
+		})
 	}
 }

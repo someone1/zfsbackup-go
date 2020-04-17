@@ -42,84 +42,22 @@ const GoogleCloudStorageBackendPrefix = "gs"
 // GoogleCloudStorageBackend integrates with Google Cloud Storage.
 type GoogleCloudStorageBackend struct {
 	conf       *BackendConfig
-	client     GCSClientInterface
+	client     *storage.Client
 	prefix     string
 	bucketName string
 }
 
-// GCSClientInterface is used to abstract the underlysing GCS client
-// so we can mockup tests.
-// Maybe they'll figure out something better eventually...
-// // https://code-review.googlesource.com/#/c/12970/
-type GCSClientInterface interface {
-	BucketExists(context.Context, string) error
-	DeleteObject(c context.Context, b, o string) error
-	NewWriter(c context.Context, b, o string, h uint32, chunkSize int) io.WriteCloser
-	NewReader(c context.Context, b, o string) (io.ReadCloser, error)
-	ListBucket(c context.Context, b, p string) ([]string, error)
-	Close() error
-}
+type withGoogleCloudStorageClient struct{ client *storage.Client }
 
-// Basic wrapper for *storage.Client - will not be tested
-type gcsClient struct {
-	client *storage.Client
-}
-
-func (g *gcsClient) BucketExists(ctx context.Context, bucket string) error {
-	_, err := g.client.Bucket(bucket).Attrs(ctx)
-	return err
-}
-
-func (g *gcsClient) DeleteObject(ctx context.Context, bucket, object string) error {
-	return g.client.Bucket(bucket).Object(object).Delete(ctx)
-}
-
-func (g *gcsClient) NewWriter(ctx context.Context, bucket, object string, crc32Hash uint32, chunkSize int) io.WriteCloser {
-	w := g.client.Bucket(bucket).Object(object).NewWriter(ctx)
-	w.CRC32C = crc32Hash
-	w.SendCRC32C = true
-	w.ChunkSize = chunkSize
-	return w
-}
-
-func (g *gcsClient) NewReader(ctx context.Context, bucket, object string) (io.ReadCloser, error) {
-	return g.client.Bucket(bucket).Object(object).NewReader(ctx)
-}
-
-func (g *gcsClient) Close() error {
-	return g.client.Close()
-}
-
-func (g *gcsClient) ListBucket(ctx context.Context, bucket, prefix string) ([]string, error) {
-	q := &storage.Query{Prefix: prefix}
-	objects := g.client.Bucket(bucket).Objects(ctx, q)
-	l := make([]string, 0, 1000)
-	for {
-		attrs, err := objects.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("gs backend: could not list bucket due to error - %v", err)
-		}
-
-		l = append(l, attrs.Name)
-	}
-	return l, nil
-}
-
-type withGCSClient struct{ client GCSClientInterface }
-
-func (w withGCSClient) Apply(b Backend) {
+func (w withGoogleCloudStorageClient) Apply(b Backend) {
 	if v, ok := b.(*GoogleCloudStorageBackend); ok {
 		v.client = w.client
 	}
 }
 
-// WithGCSClient will override an GCS backend's underlying API client with the one provided.
-// Primarily used to inject mock clients for testing.
-func WithGCSClient(c GCSClientInterface) Option {
-	return withGCSClient{c}
+// WithGoogleCloudStorageClient will override an GCS backend's underlying API client with the one provided.
+func WithGoogleCloudStorageClient(c *storage.Client) Option {
+	return withGoogleCloudStorageClient{c}
 }
 
 // Init will initialize the GoogleCloudStorageBackend and verify the provided URI is valid/exists.
@@ -147,10 +85,14 @@ func (g *GoogleCloudStorageBackend) Init(ctx context.Context, conf *BackendConfi
 		if err != nil {
 			return err
 		}
-		g.client = &gcsClient{client}
+		g.client = client
 	}
 
-	return g.client.BucketExists(ctx, g.bucketName)
+	if _, err := g.client.Bucket(g.bucketName).Attrs(ctx); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Upload will upload the provided VolumeInfo to Google's Cloud Storage
@@ -158,15 +100,21 @@ func (g *GoogleCloudStorageBackend) Init(ctx context.Context, conf *BackendConfi
 // Incomplete uploads auto-expire after one week. See:
 // https://cloud.google.com/storage/docs/json_api/v1/how-tos/resumable-upload
 func (g *GoogleCloudStorageBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	g.conf.MaxParallelUploadBuffer <- true
 	defer func() {
 		<-g.conf.MaxParallelUploadBuffer
 	}()
 
 	objName := g.prefix + vol.ObjectName
-	w := g.client.NewWriter(ctx, g.bucketName, objName, vol.CRC32CSum32, g.conf.UploadChunkSize)
+	w := g.client.Bucket(g.bucketName).Object(objName).NewWriter(ctx)
+	w.CRC32C = vol.CRC32CSum32
+	w.SendCRC32C = true
+	w.ChunkSize = g.conf.UploadChunkSize
+
 	if _, err := io.Copy(w, vol); err != nil {
-		w.Close()
 		log.AppLogger.Debugf("gs backend: Error while uploading volume %s - %v", vol.ObjectName, err)
 		return err
 	}
@@ -175,7 +123,7 @@ func (g *GoogleCloudStorageBackend) Upload(ctx context.Context, vol *files.Volum
 
 // Delete will delete the given object from the configured bucket
 func (g *GoogleCloudStorageBackend) Delete(ctx context.Context, filename string) error {
-	return g.client.DeleteObject(ctx, g.bucketName, filename)
+	return g.client.Bucket(g.bucketName).Object(g.prefix + filename).Delete(ctx)
 }
 
 // PreDownload does nothing on this backend.
@@ -185,7 +133,7 @@ func (g *GoogleCloudStorageBackend) PreDownload(ctx context.Context, objects []s
 
 // Download will download the requseted object which can be read from the return io.ReadCloser.
 func (g *GoogleCloudStorageBackend) Download(ctx context.Context, filename string) (io.ReadCloser, error) {
-	return g.client.NewReader(ctx, g.bucketName, filename)
+	return g.client.Bucket(g.bucketName).Object(g.prefix + filename).NewReader(ctx)
 }
 
 // Close will release any resources used by the GCS backend.
@@ -199,5 +147,19 @@ func (g *GoogleCloudStorageBackend) Close() error {
 // List will iterate through all objects in the configured GCS bucket and return
 // a list of object names, filtering by the prefix provided.
 func (g *GoogleCloudStorageBackend) List(ctx context.Context, prefix string) ([]string, error) {
-	return g.client.ListBucket(ctx, g.bucketName, prefix)
+	q := &storage.Query{Prefix: g.prefix + prefix}
+	objects := g.client.Bucket(g.bucketName).Objects(ctx, q)
+	l := make([]string, 0, 1000)
+	for {
+		attrs, err := objects.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("gs backend: could not list bucket due to error - %v", err)
+		}
+
+		l = append(l, strings.TrimPrefix(attrs.Name, g.prefix))
+	}
+	return l, nil
 }
