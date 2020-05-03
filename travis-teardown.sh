@@ -12,7 +12,7 @@ sudo zpool destroy -f tank || true
 sudo rm ${VDEV} || true
 
 # Remove PGP keyrings
-rm *.pgp
+rm *.pgp || true
 
 # Clear env variables
 export VDEV=

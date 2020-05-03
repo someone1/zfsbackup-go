@@ -23,6 +23,7 @@ package files
 import (
 	"bufio"
 	"context"
+	"crypto"
 	"crypto/md5"  // nolint:gosec // MD5 not used for cryptographic purposes here
 	"crypto/sha1" // nolint:gosec // SHA1 not used for cryptographic purposes here
 	"crypto/sha256"
@@ -406,26 +407,31 @@ func (v *VolumeInfo) CopyTo(dest string) (err error) {
 
 // prepareVolume returns a VolumeInfo, filename parts, extension parts, and an error
 // compress -> encrypt/sign -> output
-// nolint:gocritic // Don't need to name the results
-func prepareVolume(ctx context.Context, j *JobInfo, pipe, isManifest bool) (*VolumeInfo, []string, []string, error) {
+func prepareVolume(ctx context.Context, j *JobInfo, pipe, isManifest bool) (*VolumeInfo, error) {
 	v, err := CreateSimpleVolume(ctx, pipe)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
-
-	extensions := make([]string, 0, 2)
 
 	// Prepare the Encryption/Signing writer, if required
 	if j.EncryptKey != nil || j.SignKey != nil {
-		extensions = append(extensions, "pgp")
 		pgpConfig := new(packet.Config)
 		pgpConfig.DefaultCompressionAlgo = packet.CompressionNone // We will do our own, thank you very much!
 		pgpConfig.DefaultCipher = packet.CipherAES256
+		pgpConfig.DefaultHash = crypto.SHA256
+		pgpConfig.RSABits = 2048
 		fileHints := new(openpgp.FileHints)
 		fileHints.IsBinary = true
-		pgpWriter, err := openpgp.Encrypt(v.w, []*openpgp.Entity{j.EncryptKey}, j.SignKey, fileHints, pgpConfig)
-		if err != nil {
-			return nil, nil, nil, err
+
+		var pgpWriter io.WriteCloser
+		if j.EncryptKey != nil {
+			if pgpWriter, err = openpgp.Encrypt(v.w, []*openpgp.Entity{j.EncryptKey}, j.SignKey, fileHints, pgpConfig); err != nil {
+				return nil, err
+			}
+		} else {
+			if pgpWriter, err = openpgp.Sign(v.w, j.SignKey, fileHints, pgpConfig); err != nil {
+				return nil, err
+			}
 		}
 		v.pgpw = pgpWriter
 		v.w = pgpWriter
@@ -441,7 +447,7 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe, isManifest bool) (*Vol
 	case InternalCompressor:
 		v.cw, _ = gzip.NewWriterLevel(v.w, j.CompressionLevel)
 		v.w = v.cw
-		extensions = append([]string{"gz"}, extensions...)
+
 		printCompressCMD.Do(func() {
 			log.AppLogger.Infof("Will be using internal gzip compressor with compression level %d.", j.CompressionLevel)
 		})
@@ -450,14 +456,12 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe, isManifest bool) (*Vol
 	case ZfsCompressor:
 		printCompressCMD.Do(func() { log.AppLogger.Infof("Will send a ZFS compressed stream") })
 	default:
-		extensions = append([]string{compressorName}, extensions...)
-
 		v.cmd = exec.CommandContext(ctx, compressorName, "-c", fmt.Sprintf("-%d", j.CompressionLevel))
 		v.cmd.Stdout = v.w
 
 		compressor, err := v.cmd.StdinPipe()
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, err
 		}
 		v.cw = compressor
 		v.w = v.cw
@@ -472,20 +476,13 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe, isManifest bool) (*Vol
 
 		err = v.cmd.Start()
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, err
 		}
 
 		// TODO: Signal properly if the process closes prematurely
 	}
 
-	nameParts := []string{j.VolumeName}
-	if j.IncrementalSnapshot.Name != "" {
-		nameParts = append(nameParts, j.IncrementalSnapshot.Name, "to", j.BaseSnapshot.Name)
-	} else {
-		nameParts = append(nameParts, j.BaseSnapshot.Name)
-	}
-
-	return v, nameParts, extensions, nil
+	return v, nil
 }
 
 // CreateManifestVolume will call CreateSimpleVolume and add options to compress,
@@ -493,18 +490,12 @@ func prepareVolume(ctx context.Context, j *JobInfo, pipe, isManifest bool) (*Vol
 // It will also name the file accordingly as a manifest file.
 func CreateManifestVolume(ctx context.Context, j *JobInfo) (*VolumeInfo, error) {
 	// Create and name the manifest file
-	extensions := []string{"manifest"}
-	nameParts := []string{j.ManifestPrefix}
-
-	v, baseParts, ext, err := prepareVolume(ctx, j, false, true)
+	v, err := prepareVolume(ctx, j, false, true)
 	if err != nil {
 		return nil, err
 	}
 
-	extensions = append(extensions, ext...)
-	nameParts = append(nameParts, baseParts...)
-
-	v.ObjectName = fmt.Sprintf("%s.%s", strings.Join(nameParts, j.Separator), strings.Join(extensions, "."))
+	v.ObjectName = j.ManifestObjectName()
 	v.IsManifest = true
 
 	return v, nil
@@ -514,24 +505,18 @@ func CreateManifestVolume(ctx context.Context, j *JobInfo) (*VolumeInfo, error) 
 // encrypt, and/or sign the file as it is written depending on the provided options.
 // It will also name the file accordingly as a volume as part of backup set.
 func CreateBackupVolume(ctx context.Context, j *JobInfo, volnum int64) (*VolumeInfo, error) {
-	// Create and name the backup file
-	extensions := []string{"zstream"}
-
 	pipe := false
 	if j.MaxFileBuffer == 0 {
 		pipe = true
 	}
 
-	v, nameParts, ext, err := prepareVolume(ctx, j, pipe, false)
+	v, err := prepareVolume(ctx, j, pipe, false)
 	if err != nil {
 		return nil, err
 	}
 
 	v.VolumeNumber = volnum
-	extensions = append(extensions, ext...)
-	extensions = append(extensions, fmt.Sprintf("vol%d", v.VolumeNumber))
-
-	v.ObjectName = fmt.Sprintf("%s.%s", strings.Join(nameParts, j.Separator), strings.Join(extensions, "."))
+	v.ObjectName = j.BackupVolumeObjectName(v.VolumeNumber)
 
 	return v, nil
 }

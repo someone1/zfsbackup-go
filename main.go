@@ -21,9 +21,14 @@
 package main
 
 import (
+	"context"
+
 	"github.com/someone1/zfsbackup-go/cmd"
 )
 
 func main() {
-	cmd.Execute()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cmd.Execute(ctx)
 }

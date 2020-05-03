@@ -21,6 +21,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -72,8 +73,8 @@ destination of your choosing.`,
 
 // Execute adds all child commands to the root command sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute() {
-	if err := RootCmd.Execute(); err != nil {
+func Execute(ctx context.Context) {
+	if err := RootCmd.ExecuteContext(ctx); err != nil {
 		os.Exit(-1)
 	}
 }
@@ -243,9 +244,14 @@ func getAndDecryptPrivateKey(email string) (*openpgp.Entity, error) {
 }
 
 func loadSendKeys() error {
-	if jobInfo.EncryptTo != "" && publicKeyRingPath == "" {
-		log.AppLogger.Errorf("You must specify a public keyring path if you provide an encryptTo option")
-		return errInvalidInput
+	if jobInfo.EncryptTo != "" {
+		if usingSmartOption() && secretKeyRingPath == "" {
+			log.AppLogger.Errorf("You must specify a secret keyring path if you use a smart option with encryptTo")
+			return errInvalidInput
+		} else if publicKeyRingPath == "" {
+			log.AppLogger.Errorf("You must specify a public keyring path if you provide an encryptTo option")
+			return errInvalidInput
+		}
 	}
 
 	if jobInfo.SignFrom != "" && secretKeyRingPath == "" {
@@ -254,7 +260,13 @@ func loadSendKeys() error {
 	}
 
 	if jobInfo.EncryptTo != "" {
-		if jobInfo.EncryptKey = pgp.GetPublicKeyByEmail(jobInfo.EncryptTo); jobInfo.EncryptKey == nil {
+		if usingSmartOption() {
+			var err error
+			jobInfo.EncryptKey, err = getAndDecryptPrivateKey(jobInfo.EncryptTo)
+			if err != nil {
+				return err
+			}
+		} else if jobInfo.EncryptKey = pgp.GetPublicKeyByEmail(jobInfo.EncryptTo); jobInfo.EncryptKey == nil {
 			log.AppLogger.Errorf("Could not find public key for %s", jobInfo.EncryptTo)
 			return errInvalidInput
 		}

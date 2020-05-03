@@ -2,8 +2,9 @@
 
 # Setup ZFS Pool
 export VDEV=$(mktemp)
-dd if=/dev/zero of=${VDEV} bs=2048 count=1048576
+dd if=/dev/zero of=${VDEV} bs=2048 count=1572864
 sudo zpool create tank ${VDEV}
+sudo zfs set snapdir=visible compression=lz4 atime=off tank
 sudo zfs create tank/data
 sudo dd if=/dev/urandom of=/tank/data/a bs=1024 count=409600
 sudo zfs snapshot tank/data@a

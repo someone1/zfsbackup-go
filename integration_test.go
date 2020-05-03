@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	oglog "log"
 	"net/url"
 	"os"
 	"os/exec"
@@ -39,12 +40,14 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/op/go-logging"
 
 	"github.com/someone1/zfsbackup-go/backends"
 	"github.com/someone1/zfsbackup-go/backup"
 	"github.com/someone1/zfsbackup-go/cmd"
 	"github.com/someone1/zfsbackup-go/config"
 	"github.com/someone1/zfsbackup-go/files"
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 const s3TestBucketName = "s3integrationbuckettest"
@@ -217,9 +220,12 @@ func compareDirs(t *testing.T, source, dest string) {
 	t.Helper()
 
 	// nolint:gosec // The input is safe
-	diffCmd := exec.Command("diff", "-rq", source, dest)
-	err := diffCmd.Run()
-	if err != nil {
+	diffCmd := exec.Command("diff", "-rq", "--exclude", ".zfs", source, dest)
+	errBuf := bytes.NewBuffer(nil)
+	diffCmd.Stderr = errBuf
+
+	if err := diffCmd.Run(); err != nil {
+		t.Logf("diff output: %s", errBuf.String())
 		t.Fatalf("unexpected difference comparing %s with %s: %v", source, dest, err)
 	}
 }
@@ -428,9 +434,12 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 	}
 }
 
-// TestEncryption expects private.pgp and public.pgp to be available with the test@example.com user
-func TestEncryption(t *testing.T) {
-	tempDir, err := ioutil.TempDir("", "pgptest")
+// TestEncryptionAndSign expects private.pgp and public.pgp to be available with the test@example.com user
+func TestEncryptionAndSign(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tempDir, err := ioutil.TempDir("", t.Name())
 	if err != nil {
 		t.Fatalf("error preparing temp dir for tests - %v", err)
 	}
@@ -449,33 +458,106 @@ func TestEncryption(t *testing.T) {
 		newDataset = fmt.Sprintf("tank/%snew", t.Name())
 	)
 
-	copyDataset(t, "tank/data@a", dataset)
+	copyDataset(t, "tank/data@c", dataset)
 	defer deleteDataset(t, dataset)
 	defer deleteDataset(t, newDataset)
 
-	dataset += "@a"
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr bool
+	}{
+		{
+			"Encrypted Backup - Fail no public keyring",
+			[]string{
+				"send", "--logLevel", logLevel, "--workingDirectory", scratchDir,
+				"--secretKeyRingPath", "private.pgp", "--encryptTo", user, fmt.Sprintf("%s@a", dataset), target,
+			},
+			true,
+		},
+		{
+			"Signed Backup - Fail no secret keyring",
+			[]string{
+				"send", "--logLevel", logLevel, "--workingDirectory", scratchDir,
+				"--publicKeyRingPath", "public.pgp", "--signFrom", user, fmt.Sprintf("%s@a", dataset), target,
+			},
+			true,
+		},
+		{
+			"Manual Full Backup - Encrypted",
+			[]string{
+				"send", "--logLevel", logLevel, "--workingDirectory", scratchDir,
+				"--publicKeyRingPath", "public.pgp", "--encryptTo", user, fmt.Sprintf("%s@a", dataset), target,
+			},
+			false,
+		},
+		{
+			"Manual Incremental Backup - Signed",
+			[]string{
+				"send", "--logLevel", logLevel, "--workingDirectory", scratchDir,
+				"--secretKeyRingPath", "private.pgp", "--signFrom", user, "-i", fmt.Sprintf("%s@a", dataset), fmt.Sprintf("%s@b", dataset), target,
+			},
+			false,
+		},
+		{
+			"Smart Encrypted Backup - Fail no secret keyring",
+			[]string{
+				"send", "--logLevel", logLevel, "--workingDirectory", scratchDir,
+				"--publicKeyRingPath", "public.pgp", "--encryptTo", user, "--increment", dataset, target,
+			},
+			true,
+		},
+		{
+			"Smart Encrypted & Signed Backup - Success",
+			[]string{
+				"send", "--logLevel", logLevel, "--workingDirectory", scratchDir,
+				"--publicKeyRingPath", "public.pgp", "--secretKeyRingPath", "private.pgp", "--encryptTo", user, "--signFrom", user, "--increment", dataset, target,
+			},
+			false,
+		},
+		{
+			"Restore Failure - No Key Ring",
+			[]string{"receive", "--logLevel", logLevel, "--workingDirectory", scratchDir, "-F", fmt.Sprintf("%s@a", dataset), target, newDataset},
+			true,
+		},
+		{
+			"Full Restore success - Encrypted",
+			[]string{"receive", "--logLevel", logLevel, "--workingDirectory", scratchDir, "--secretKeyRingPath", "private.pgp", "--encryptTo", user, "-F", fmt.Sprintf("%s@a", dataset), target, newDataset},
+			false,
+		},
+		{
+			"Incremental Restore success - Signed",
+			[]string{"receive", "--logLevel", logLevel, "--workingDirectory", scratchDir, "--publicKeyRingPath", "public.pgp", "--signFrom", user, "-F", "-i", fmt.Sprintf("%s@a", dataset), fmt.Sprintf("%s@b", dataset), target, newDataset},
+			false,
+		},
+		{
+			"Smart Restore success - Encrypted & Signed",
+			[]string{"receive", "--logLevel", logLevel, "--workingDirectory", scratchDir, "--publicKeyRingPath", "public.pgp", "--secretKeyRingPath", "private.pgp", "--encryptTo", user, "--signFrom", user, "-F", "--auto", dataset, target, newDataset},
+			false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			switch tt.args[0] {
+			case "send":
+				cmd.ResetSendJobInfo()
+			case "receive":
+				cmd.ResetReceiveJobInfo()
+			}
 
-	cmd.ResetSendJobInfo()
+			cmd.RootCmd.SetArgs(tt.args)
 
-	// Manual Full Backup
-	cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--workingDirectory", scratchDir, "--publicKeyRingPath", "public.pgp", "--encryptTo", user, dataset, target})
-	if err := cmd.RootCmd.Execute(); err != nil {
-		t.Fatalf("error performing backup: %v", err)
+			buf := bytes.NewBuffer(nil)
+
+			log.AppLogger.SetBackend(logging.MultiLogger(logging.NewLogBackend(buf, "", oglog.Ldate|oglog.Ltime)))
+
+			if err := cmd.RootCmd.ExecuteContext(ctx); (err != nil) != tt.wantErr {
+				t.Logf("%s", buf.String())
+				t.Errorf("zfsbackup error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 
-	// Restore Failure
-	cmd.ResetReceiveJobInfo()
-
-	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--workingDirectory", scratchDir, "-F", dataset, target, newDataset})
-	if err := cmd.RootCmd.Execute(); err == nil {
-		t.Fatalf("expected an error performing receive")
-	}
-
-	// Restore success
-	cmd.ResetReceiveJobInfo()
-
-	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--workingDirectory", scratchDir, "--secretKeyRingPath", "private.pgp", "--encryptTo", user, "-F", dataset, target, newDataset})
-	if err := cmd.RootCmd.Execute(); err != nil {
-		t.Fatalf("error performing receive: %v", err)
-	}
+	compareDirs(t, "/tank/data", fmt.Sprintf("/%s", newDataset))
 }

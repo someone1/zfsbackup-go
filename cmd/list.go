@@ -21,7 +21,6 @@
 package cmd
 
 import (
-	"context"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -62,7 +61,7 @@ var listCmd = &cobra.Command{
 		}
 
 		jobInfo.Destinations = []string{args[0]}
-		return backup.List(context.Background(), &jobInfo, startsWith, before, after)
+		return backup.List(cmd.Context(), &jobInfo, startsWith, before, after)
 	},
 }
 

@@ -23,8 +23,8 @@ env:
     - AWS_SECRET_ACCESS_KEY=minioadmin
     - GCS_FAKE_SERVER="https://localhost:4443"
   matrix:
-    - spl=true rel=0.7.13
-    # - spl=false rel=0.8.3
+    - rel=0.7.13
+    - rel=0.8.3
 
 before_install:
   - export MAKEFLAGS=-j$(($(grep -c '^processor' /proc/cpuinfo) * 2 + 1))
@@ -35,8 +35,8 @@ before_install:
   - mkdir -p $HOME/zfs
   - cd $HOME/zfs
   - "[[ -d spl-$rel.tar.gz ]] || curl -L https://github.com/zfsonlinux/zfs/releases/download/zfs-$rel/spl-$rel.tar.gz | tar xz"
-  - "[[ -d zfs-$rel.tar.gz ]] || curl -L https://github.com/zfsonlinux/zfs/releases/download/zfs-$rel/zfs-$rel.tar.gz | tar xz"
-  - (cd spl-$rel && ./configure --prefix=/usr && make && sudo make install)
+  - "[[ -d zfs-$rel.tar.gz ]] || curl -L https://github.com/zfsonlinux/zfs/releases/download/zfs-$rel/zfs-$rel.tar.gz | tar xz || true"
+  - (cd spl-$rel && ./configure --prefix=/usr && make && sudo make install) || true
   - (cd zfs-$rel && ./configure --prefix=/usr && make && sudo make install)
   - sudo modprobe zfs
   - cd $TRAVIS_BUILD_DIR
