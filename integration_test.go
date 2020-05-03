@@ -231,6 +231,9 @@ func compareDirs(t *testing.T, source, dest string) {
 }
 
 func TestIntegration(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	removeAzureBucket := setupAzureBucket(t)
 	defer removeAzureBucket()
 
@@ -248,7 +251,7 @@ func TestIntegration(t *testing.T) {
 
 		// Manual Full Backup
 		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "tank/data@a", bucket})
-		if err := cmd.RootCmd.Execute(); err != nil {
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing backup: %v", err)
 		}
 
@@ -265,7 +268,7 @@ func TestIntegration(t *testing.T) {
 
 		// Manual Incremental Backup from bookmark
 		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "-i", "tank/data#a", "tank/data@b", bucket})
-		if err := cmd.RootCmd.Execute(); err != nil {
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing backup: %v", err)
 		}
 
@@ -282,7 +285,7 @@ func TestIntegration(t *testing.T) {
 
 		// "Smart" incremental Backup from bookmark
 		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "--compressor", "xz", "--compressionLevel", "2", "--increment", "tank/data", bucket})
-		if err := cmd.RootCmd.Execute(); err != nil {
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing backup: %v", err)
 		}
 
@@ -290,7 +293,7 @@ func TestIntegration(t *testing.T) {
 
 		// Smart Incremental Backup - Nothing to do
 		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "--increment", "tank/data", bucket})
-		if err := cmd.RootCmd.Execute(); err != backup.ErrNoOp {
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != backup.ErrNoOp {
 			t.Fatalf("expecting error %v, but got %v instead", backup.ErrNoOp, err)
 		}
 
@@ -300,7 +303,7 @@ func TestIntegration(t *testing.T) {
 	// Restore tank/data for tests
 	deleteDataset(t, "tank/data")
 	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "--auto", "tank/data", s3bucket, "tank/data"})
-	if err := cmd.RootCmd.Execute(); err != nil {
+	if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 		t.Fatalf("error performing receive: %v", err)
 	}
 
@@ -320,6 +323,9 @@ func TestIntegration(t *testing.T) {
 
 func listWrapper(bucket string) func(*testing.T) {
 	return func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		old := config.Stdout
 		buf := bytes.NewBuffer(nil)
 		config.Stdout = buf
@@ -361,7 +367,7 @@ func listWrapper(bucket string) func(*testing.T) {
 			cmd.ResetListJobInfo()
 
 			cmd.RootCmd.SetArgs(append(opts, bucket))
-			if err := cmd.RootCmd.Execute(); err != nil {
+			if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 				t.Fatalf("error performing backup: %v", err)
 			}
 
@@ -387,6 +393,9 @@ func listWrapper(bucket string) func(*testing.T) {
 
 func restoreWrapper(bucket, target string) func(*testing.T) {
 	return func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		scratchDir, sErr := ioutil.TempDir("", "")
 		if sErr != nil {
 			t.Fatalf("could not create temp scratch dir: %v", sErr)
@@ -398,7 +407,7 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 
 		// Restore to snapshot @a (full)
 		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "tank/data@a", bucket, target})
-		if err := cmd.RootCmd.Execute(); err != nil {
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
 
@@ -406,7 +415,7 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 
 		// Restore to snapshot @b from @a (incremental)
 		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "-i", "tank/data@a", "tank/data@b", bucket, target})
-		if err := cmd.RootCmd.Execute(); err != nil {
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
 
@@ -414,7 +423,7 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 
 		// Restore to latest snapshot @c (auto)
 		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "--workingDirectory", scratchDir, "-F", "--auto", "tank/data", bucket, target})
-		if err := cmd.RootCmd.Execute(); err != nil {
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
 
@@ -424,7 +433,7 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 
 		// Restore to snapshot @c from origin tank/data@b (auto)
 		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "--auto", "-o", "origin=tank/data@b", "tank/data", bucket, target + "origin"})
-		if err := cmd.RootCmd.Execute(); err != nil {
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
 
