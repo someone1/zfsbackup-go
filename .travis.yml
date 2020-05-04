@@ -40,6 +40,8 @@ before_install:
   - (cd zfs-$rel && ./configure --prefix=/usr && make && sudo make install)
   - sudo modprobe zfs
   - cd $TRAVIS_BUILD_DIR
+  - mkdir temp
+  - export TMPDIR=$PWD/temp
   - source ./travis-setup.sh
 
 install:
@@ -51,7 +53,7 @@ install:
 script:
   - make build
   - chmod +x ./integration_test.sh && ./integration_test.sh
-  - sudo -E $(which go) test -race -v -coverprofile=coverage.out -covermode=atomic -coverpkg=$(go list ./... | grep -v '/vendor/' | paste -sd, -) ./...  
+  - sudo -E TMPDIR=$TMPDIR $(which go) test -race -v -coverprofile=coverage.out -covermode=atomic -coverpkg=$(go list ./... | grep -v '/vendor/' | paste -sd, -) ./...  
   - make lint
 
 after_success:

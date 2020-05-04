@@ -183,6 +183,10 @@ func copyDataset(t *testing.T, source, dest string) {
 	// nolint:gosec // The input is safe
 	sendCMD := exec.Command("zfs", "send", "-R", source)
 	receiveCMD := exec.Command("zfs", "receive", dest)
+	sendBuf := bytes.NewBuffer(nil)
+	recBuf := bytes.NewBuffer(nil)
+	sendCMD.Stderr = sendBuf
+	receiveCMD.Stderr = recBuf
 
 	var err error
 	sendCMD.Stdout, err = receiveCMD.StdinPipe()
@@ -196,11 +200,11 @@ func copyDataset(t *testing.T, source, dest string) {
 	}()
 
 	if sErr := sendCMD.Run(); sErr != nil {
-		t.Fatalf("unexpected error sending dataset %s to %s - %v", source, dest, sErr)
+		t.Fatalf("unexpected error sending dataset %s to %s - %v: %s", source, dest, sErr, sendBuf.String())
 	}
 
 	if err = <-errChan; err != nil {
-		t.Fatalf("unexpected error receiving dataset %s to %s - %v", source, dest, err)
+		t.Fatalf("unexpected error receiving dataset %s to %s - %v: %s", source, dest, err, recBuf.String())
 	}
 }
 
@@ -210,9 +214,11 @@ func deleteDataset(t *testing.T, name string) {
 
 	// nolint:gosec // The input is safe
 	destroyCmd := exec.Command("zfs", "destroy", "-f", "-r", name)
+	destroyBuf := bytes.NewBuffer(nil)
+	destroyCmd.Stderr = destroyBuf
 
 	if err := destroyCmd.Run(); err != nil {
-		t.Fatalf("unexpected error deleting dataset %s - %v", name, err)
+		t.Fatalf("unexpected error deleting dataset %s - %v: %s", name, err, destroyBuf.String())
 	}
 }
 
@@ -248,6 +254,9 @@ func TestIntegration(t *testing.T) {
 	// Backup Tests
 	t.Run("Backup", func(t *testing.T) {
 		cmd.ResetSendJobInfo()
+
+		logBuf := bytes.NewBuffer(nil)
+		log.AppLogger.SetBackend(logging.MultiLogger(logging.NewLogBackend(logBuf, "", oglog.Ldate|oglog.Ltime)))
 
 		// Manual Full Backup
 		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "tank/data@a", bucket})
@@ -323,8 +332,10 @@ func TestIntegration(t *testing.T) {
 
 func listWrapper(bucket string) func(*testing.T) {
 	return func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := context.Background()
+
+		logBuf := bytes.NewBuffer(nil)
+		log.AppLogger.SetBackend(logging.MultiLogger(logging.NewLogBackend(logBuf, "", oglog.Ldate|oglog.Ltime)))
 
 		old := config.Stdout
 		buf := bytes.NewBuffer(nil)
@@ -353,48 +364,53 @@ func listWrapper(bucket string) func(*testing.T) {
 		}
 
 		for _, test := range listTests {
-			opts := []string{"list", "--logLevel", logLevel, "--jsonOutput"}
-			if test.volumeName != "" {
-				opts = append(opts, "--volumeName", test.volumeName)
-			}
-			if !test.after.IsZero() {
-				opts = append(opts, "--after", test.after.Format(time.RFC3339[:19]))
-			}
-			if !test.before.IsZero() {
-				opts = append(opts, "--before", test.before.Format(time.RFC3339[:19]))
-			}
-
-			cmd.ResetListJobInfo()
-
-			cmd.RootCmd.SetArgs(append(opts, bucket))
-			if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
-				t.Fatalf("error performing backup: %v", err)
-			}
-
-			jout := make(map[string][]*files.JobInfo)
-			if err := json.Unmarshal(buf.Bytes(), &jout); err != nil {
-				t.Fatalf("error parsing json output: %v", err)
-			}
-
-			if len(jout) != test.keys || len(jout["tank/data"]) != test.entries {
-				t.Fatalf("expected %d keys and %d entries, got %d keys and %d entries", test.keys, test.entries, len(jout), len(jout["tank/data"]))
-			}
-
-			if len(jout["tank/data"]) == 3 {
-				if jout["tank/data"][0].BaseSnapshot.Name != "a" || jout["tank/data"][1].BaseSnapshot.Name != "b" || jout["tank/data"][2].BaseSnapshot.Name != "c" {
-					t.Fatalf("expected snapshot order a -> b -> c, but got %s -> %s -> %s instead", jout["tank/data"][0].BaseSnapshot.Name, jout["tank/data"][1].BaseSnapshot.Name, jout["tank/data"][2].BaseSnapshot.Name)
+			test := test
+			t.Run(test.volumeName, func(t *testing.T) {
+				opts := []string{"list", "--logLevel", logLevel, "--jsonOutput"}
+				if test.volumeName != "" {
+					opts = append(opts, "--volumeName", test.volumeName)
 				}
-			}
+				if !test.after.IsZero() {
+					opts = append(opts, "--after", test.after.Format(time.RFC3339[:19]))
+				}
+				if !test.before.IsZero() {
+					opts = append(opts, "--before", test.before.Format(time.RFC3339[:19]))
+				}
 
-			buf.Reset()
+				cmd.ResetListJobInfo()
+
+				cmd.RootCmd.SetArgs(append(opts, bucket))
+				if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
+					t.Fatalf("error performing backup: %v", err)
+				}
+
+				jout := make(map[string][]*files.JobInfo)
+				if err := json.Unmarshal(buf.Bytes(), &jout); err != nil {
+					t.Fatalf("error parsing json output: %v", err)
+				}
+
+				if len(jout) != test.keys || len(jout["tank/data"]) != test.entries {
+					t.Fatalf("expected %d keys and %d entries, got %d keys and %d entries", test.keys, test.entries, len(jout), len(jout["tank/data"]))
+				}
+
+				if len(jout["tank/data"]) == 3 {
+					if jout["tank/data"][0].BaseSnapshot.Name != "a" || jout["tank/data"][1].BaseSnapshot.Name != "b" || jout["tank/data"][2].BaseSnapshot.Name != "c" {
+						t.Fatalf("expected snapshot order a -> b -> c, but got %s -> %s -> %s instead", jout["tank/data"][0].BaseSnapshot.Name, jout["tank/data"][1].BaseSnapshot.Name, jout["tank/data"][2].BaseSnapshot.Name)
+					}
+				}
+
+				buf.Reset()
+			})
 		}
 	}
 }
 
 func restoreWrapper(bucket, target string) func(*testing.T) {
 	return func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := context.Background()
+
+		logBuf := bytes.NewBuffer(nil)
+		log.AppLogger.SetBackend(logging.MultiLogger(logging.NewLogBackend(logBuf, "", oglog.Ldate|oglog.Ltime)))
 
 		scratchDir, sErr := ioutil.TempDir("", "")
 		if sErr != nil {
