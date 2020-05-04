@@ -180,6 +180,8 @@ func TestVersion(t *testing.T) {
 func copyDataset(t *testing.T, source, dest string) {
 	t.Helper()
 
+	t.Logf("Copying %s to %s", source, dest)
+
 	// nolint:gosec // The input is safe
 	sendCMD := exec.Command("zfs", "send", "-R", source)
 	receiveCMD := exec.Command("zfs", "receive", dest)
@@ -237,8 +239,7 @@ func compareDirs(t *testing.T, source, dest string) {
 }
 
 func TestIntegration(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := context.Background()
 
 	removeAzureBucket := setupAzureBucket(t)
 	defer removeAzureBucket()
@@ -249,6 +250,10 @@ func TestIntegration(t *testing.T) {
 	s3bucket := fmt.Sprintf("%s://%s", backends.AWSS3BackendPrefix, s3TestBucketName)
 	azurebucket := fmt.Sprintf("%s://%s", backends.AzureBackendPrefix, azureTestBucketName)
 	bucket := fmt.Sprintf("%s,%s", s3bucket, azurebucket)
+	dataset := fmt.Sprintf("tank/%s", t.Name())
+
+	copyDataset(t, "tank/data@c", dataset)
+	defer deleteDataset(t, dataset)
 
 	// Azurite doesn't seem to like '|' so making separator '-'
 	// Backup Tests
@@ -259,7 +264,7 @@ func TestIntegration(t *testing.T) {
 		log.AppLogger.SetBackend(logging.MultiLogger(logging.NewLogBackend(logBuf, "", oglog.Ldate|oglog.Ltime)))
 
 		// Manual Full Backup
-		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "tank/data@a", bucket})
+		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", fmt.Sprintf("%s@a", dataset), bucket})
 		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing backup: %v", err)
 		}
@@ -267,16 +272,18 @@ func TestIntegration(t *testing.T) {
 		cmd.ResetSendJobInfo()
 
 		// Bookmark setup
-		if err := exec.Command("zfs", "bookmark", "tank/data@a", "tank/data#a").Run(); err != nil {
-			t.Fatalf("unexpected error creating bookmark tank/data#a: %v", err)
+		// nolint:gosec // The input is safe
+		if err := exec.Command("zfs", "bookmark", fmt.Sprintf("%s@a", dataset), fmt.Sprintf("%s#a", dataset)).Run(); err != nil {
+			t.Fatalf("unexpected error creating bookmark %s#a: %v", dataset, err)
 		}
 
-		if err := exec.Command("zfs", "destroy", "tank/data@a").Run(); err != nil {
-			t.Fatalf("unexpected error destroying snapshot tank/data@a: %v", err)
+		// nolint:gosec // The input is safe
+		if err := exec.Command("zfs", "destroy", fmt.Sprintf("%s@a", dataset)).Run(); err != nil {
+			t.Fatalf("unexpected error destroying snapshot %s@a: %v", dataset, err)
 		}
 
 		// Manual Incremental Backup from bookmark
-		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "-i", "tank/data#a", "tank/data@b", bucket})
+		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "-i", fmt.Sprintf("%s#a", dataset), fmt.Sprintf("%s@b", dataset), bucket})
 		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing backup: %v", err)
 		}
@@ -284,16 +291,18 @@ func TestIntegration(t *testing.T) {
 		cmd.ResetSendJobInfo()
 
 		// Another Bookmark setup
-		if err := exec.Command("zfs", "bookmark", "tank/data@b", "tank/data#b").Run(); err != nil {
-			t.Fatalf("unexpected error creating bookmark tank/data#b: %v", err)
+		// nolint:gosec // The input is safe
+		if err := exec.Command("zfs", "bookmark", fmt.Sprintf("%s@b", dataset), fmt.Sprintf("%s#b", dataset)).Run(); err != nil {
+			t.Fatalf("unexpected error creating bookmark %s#b: %v", dataset, err)
 		}
 
-		if err := exec.Command("zfs", "destroy", "tank/data@b").Run(); err != nil {
-			t.Fatalf("unexpected error destroying snapshot tank/data@b: %v", err)
+		// nolint:gosec // The input is safe
+		if err := exec.Command("zfs", "destroy", fmt.Sprintf("%s@b", dataset)).Run(); err != nil {
+			t.Fatalf("unexpected error destroying snapshot %s@b: %v", dataset, err)
 		}
 
 		// "Smart" incremental Backup from bookmark
-		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "--compressor", "xz", "--compressionLevel", "2", "--increment", "tank/data", bucket})
+		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "--compressor", "xz", "--compressionLevel", "2", "--increment", dataset, bucket})
 		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing backup: %v", err)
 		}
@@ -301,20 +310,13 @@ func TestIntegration(t *testing.T) {
 		cmd.ResetSendJobInfo()
 
 		// Smart Incremental Backup - Nothing to do
-		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "--increment", "tank/data", bucket})
+		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "--increment", dataset, bucket})
 		if err := cmd.RootCmd.ExecuteContext(ctx); err != backup.ErrNoOp {
 			t.Fatalf("expecting error %v, but got %v instead", backup.ErrNoOp, err)
 		}
 
 		cmd.ResetSendJobInfo()
 	})
-
-	// Restore tank/data for tests
-	deleteDataset(t, "tank/data")
-	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "--auto", "tank/data", s3bucket, "tank/data"})
-	if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
-		t.Fatalf("error performing receive: %v", err)
-	}
 
 	var restoreTest = []struct {
 		backend string
@@ -325,12 +327,12 @@ func TestIntegration(t *testing.T) {
 		{"Azure", azurebucket, "tank/data2"},
 	}
 	for _, test := range restoreTest {
-		t.Run(fmt.Sprintf("List%s", test.backend), listWrapper(test.bucket))
-		t.Run(fmt.Sprintf("Restore%s", test.backend), restoreWrapper(test.bucket, test.target))
+		t.Run(fmt.Sprintf("List%s", test.backend), listWrapper(dataset, test.bucket))
+		t.Run(fmt.Sprintf("Restore%s", test.backend), restoreWrapper(dataset, test.bucket, test.target))
 	}
 }
 
-func listWrapper(bucket string) func(*testing.T) {
+func listWrapper(dataset, bucket string) func(*testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
 
@@ -353,7 +355,7 @@ func listWrapper(bucket string) func(*testing.T) {
 			{"", time.Time{}, time.Time{}, 1, 3},
 			{"t*", time.Time{}, time.Time{}, 1, 3},
 			{"v*", time.Time{}, time.Time{}, 0, 0},
-			{"tank/data", time.Time{}, time.Time{}, 1, 3},
+			{dataset, time.Time{}, time.Time{}, 1, 3},
 			{"tan", time.Time{}, time.Time{}, 0, 0},
 			// before Tests
 			{"", time.Time{}, time.Now(), 1, 3},
@@ -389,13 +391,13 @@ func listWrapper(bucket string) func(*testing.T) {
 					t.Fatalf("error parsing json output: %v", err)
 				}
 
-				if len(jout) != test.keys || len(jout["tank/data"]) != test.entries {
-					t.Fatalf("expected %d keys and %d entries, got %d keys and %d entries", test.keys, test.entries, len(jout), len(jout["tank/data"]))
+				if len(jout) != test.keys || len(jout[dataset]) != test.entries {
+					t.Fatalf("expected %d keys and %d entries, got %d keys and %d entries", test.keys, test.entries, len(jout), len(jout[dataset]))
 				}
 
-				if len(jout["tank/data"]) == 3 {
-					if jout["tank/data"][0].BaseSnapshot.Name != "a" || jout["tank/data"][1].BaseSnapshot.Name != "b" || jout["tank/data"][2].BaseSnapshot.Name != "c" {
-						t.Fatalf("expected snapshot order a -> b -> c, but got %s -> %s -> %s instead", jout["tank/data"][0].BaseSnapshot.Name, jout["tank/data"][1].BaseSnapshot.Name, jout["tank/data"][2].BaseSnapshot.Name)
+				if len(jout[dataset]) == 3 {
+					if jout[dataset][0].BaseSnapshot.Name != "a" || jout[dataset][1].BaseSnapshot.Name != "b" || jout[dataset][2].BaseSnapshot.Name != "c" {
+						t.Fatalf("expected snapshot order a -> b -> c, but got %s -> %s -> %s instead", jout[dataset][0].BaseSnapshot.Name, jout[dataset][1].BaseSnapshot.Name, jout[dataset][2].BaseSnapshot.Name)
 					}
 				}
 
@@ -405,7 +407,7 @@ func listWrapper(bucket string) func(*testing.T) {
 	}
 }
 
-func restoreWrapper(bucket, target string) func(*testing.T) {
+func restoreWrapper(dataset, bucket, target string) func(*testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
 
@@ -422,7 +424,7 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 		cmd.ResetReceiveJobInfo()
 
 		// Restore to snapshot @a (full)
-		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "tank/data@a", bucket, target})
+		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", fmt.Sprintf("%s@a", dataset), bucket, target})
 		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
@@ -430,7 +432,7 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 		cmd.ResetReceiveJobInfo()
 
 		// Restore to snapshot @b from @a (incremental)
-		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "-i", "tank/data@a", "tank/data@b", bucket, target})
+		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "-i", fmt.Sprintf("%s@a", dataset), fmt.Sprintf("%s@b", dataset), bucket, target})
 		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
@@ -438,7 +440,7 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 		cmd.ResetReceiveJobInfo()
 
 		// Restore to latest snapshot @c (auto)
-		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "--workingDirectory", scratchDir, "-F", "--auto", "tank/data", bucket, target})
+		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "--workingDirectory", scratchDir, "-F", "--auto", dataset, bucket, target})
 		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
@@ -448,7 +450,7 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 		cmd.ResetReceiveJobInfo()
 
 		// Restore to snapshot @c from origin tank/data@b (auto)
-		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "--auto", "-o", "origin=tank/data@b", "tank/data", bucket, target + "origin"})
+		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "--auto", "-o", "origin=tank/data@b", dataset, bucket, target + "origin"})
 		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
@@ -461,8 +463,7 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 
 // TestEncryptionAndSign expects private.pgp and public.pgp to be available with the test@example.com user
 func TestEncryptionAndSign(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := context.Background()
 
 	tempDir, err := ioutil.TempDir("", t.Name())
 	if err != nil {

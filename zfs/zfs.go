@@ -88,7 +88,7 @@ func GetSnapshotsAndBookmarks(ctx context.Context, target string) ([]files.Snaps
 	}
 	err = cmd.Wait()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s (%v)", strings.TrimSpace(errB.String()), err)
 	}
 
 	return snapshots, nil

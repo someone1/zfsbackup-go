@@ -139,6 +139,7 @@ func syncCache(ctx context.Context, j *files.JobInfo, localCache string, backend
 func validateSnapShotExists(ctx context.Context, snapshot *files.SnapshotInfo, target string, includeBookmarks bool) (bool, error) {
 	snapshots, err := zfs.GetSnapshotsAndBookmarks(ctx, target)
 	if err != nil {
+		log.AppLogger.Debugf("Could not list snapshots for %s: %v", target, err)
 		// TODO: There are some error cases that are ok to ignore!
 		return false, nil
 	}
