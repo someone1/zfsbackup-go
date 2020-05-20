@@ -111,6 +111,12 @@ func init() {
 		false,
 		"set this flag to do an incremental backup of the most recent snapshot from the most recent snapshot found in the target.",
 	)
+	sendCmd.Flags().StringVar(
+		&jobInfo.SnapshotPrefix,
+		"snapshotPrefix",
+		"",
+		"Only consider snapshots starting with the given snapshot prefix",
+	)
 	sendCmd.Flags().DurationVar(
 		&jobInfo.FullIfOlderThan,
 		"fullIfOlderThan",
