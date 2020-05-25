@@ -3,8 +3,8 @@
 SCRATCHDIR=$(mktemp -d)
 mkdir -p $SCRATCHDIR/integrationtest
 
-export TARGET="file://$SCRATCHDIR/integrationtest/"
-export USER="test@example.com"
+TARGET="file://$SCRATCHDIR/integrationtest/"
+USER="test@example.com"
 
 echo "Basic send/recieve test with encryption and compression"
 go build ./

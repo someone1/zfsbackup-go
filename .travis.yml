@@ -42,7 +42,8 @@ before_install:
   - cd $TRAVIS_BUILD_DIR
   - mkdir temp
   - export TMPDIR=$PWD/temp
-  - source ./travis-setup.sh
+  - export VDEV=$(mktemp)
+  - chmod +x ./travis-setup.sh && ./travis-setup.sh
 
 install:
   - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $GOPATH/bin v1.24.0
@@ -60,4 +61,4 @@ after_success:
   - sudo -E $GOPATH/bin/goveralls -coverprofile=coverage.out -service=travis-ci
 
 after_script: 
-  - source ./travis-teardown.sh
+  - chmod +x ./travis-teardown.sh && ./travis-teardown.sh
