@@ -21,6 +21,7 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5" // nolint:gosec // MD5 not used for cryptographic purposes here
 	"errors"
@@ -244,32 +245,21 @@ func Receive(pctx context.Context, jobInfo *files.JobInfo) error {
 		}
 	}
 
-	// Compute the Manifest File
-	tempManifest, err := files.CreateManifestVolume(ctx, jobInfo)
-	if err != nil {
-		log.AppLogger.Errorf("Error trying to create manifest volume - %v", err)
-		return err
-	}
-	if err = tempManifest.Close(); err != nil {
-		log.AppLogger.Warningf("Could not close temporary manifest %v", err)
-	}
-	if err = tempManifest.DeleteVolume(); err != nil {
-		log.AppLogger.Warningf("Could not delete temporary manifest %v", err)
-	}
+	manifestObjectName := jobInfo.ManifestObjectName()
 	// nolint:gosec // MD5 not used for cryptographic purposes here
-	safeManifestFile := fmt.Sprintf("%x", md5.Sum([]byte(tempManifest.ObjectName)))
+	safeManifestFile := fmt.Sprintf("%x", md5.Sum([]byte(manifestObjectName)))
 	safeManifestPath := filepath.Join(localCachePath, safeManifestFile)
 
 	// Check to see if we have the manifest file locally
 	manifest, err := readManifest(ctx, safeManifestPath, jobInfo)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if bErr := backend.PreDownload(ctx, []string{tempManifest.ObjectName}); bErr != nil {
-				log.AppLogger.Errorf("Error trying to pre download manifest volume %s - %v", tempManifest.ObjectName, bErr)
+			if bErr := backend.PreDownload(ctx, []string{manifestObjectName}); bErr != nil {
+				log.AppLogger.Errorf("Error trying to pre download manifest volume %s - %v", manifestObjectName, bErr)
 				return bErr
 			}
 			// Try and download the manifest file from the backend
-			if dErr := downloadTo(ctx, backend, tempManifest.ObjectName, safeManifestPath); dErr != nil {
+			if dErr := downloadTo(ctx, backend, manifestObjectName, safeManifestPath); dErr != nil {
 				return dErr
 			}
 			manifest, err = readManifest(ctx, safeManifestPath, jobInfo)
@@ -460,9 +450,10 @@ func processSequence(ctx context.Context, sequence downloadSequence, backend bac
 }
 
 func receiveStream(ctx context.Context, cmd *exec.Cmd, j *files.JobInfo, c <-chan *files.VolumeInfo, buffer <-chan interface{}) error {
+	buf := bytes.NewBuffer(nil)
 	cin, cout := io.Pipe()
 	cmd.Stdin = cin
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = buf
 	var group *errgroup.Group
 	var once sync.Once
 	group, ctx = errgroup.WithContext(ctx)
@@ -533,7 +524,7 @@ func receiveStream(ctx context.Context, cmd *exec.Cmd, j *files.JobInfo, c <-cha
 	// Wait for the command to finish
 	err = group.Wait()
 	if err != nil {
-		log.AppLogger.Errorf("Error waiting for zfs command to finish - %v", err)
+		log.AppLogger.Errorf("Error waiting for zfs command to finish - %v: %s", err, buf.String())
 		return err
 	}
 	log.AppLogger.Infof("zfs receive completed without error")

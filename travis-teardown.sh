@@ -12,9 +12,7 @@ sudo zpool destroy -f tank || true
 sudo rm ${VDEV} || true
 
 # Remove PGP keyrings
-rm *.pgp
+rm *.pgp || true
 
 # Clear env variables
-export VDEV=
-export AWS_ACCESS_KEY_ID=
-export AWS_SECRET_ACCESS_KEY=
+unset VDEV

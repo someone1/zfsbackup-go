@@ -63,7 +63,7 @@ var sendCmd = &cobra.Command{
 			log.AppLogger.Infof("Will be signed from %s", jobInfo.SignFrom)
 		}
 
-		return backup.Backup(context.Background(), &jobInfo)
+		return backup.Backup(cmd.Context(), &jobInfo)
 	},
 }
 
@@ -307,12 +307,6 @@ func validateSendFlags(cmd *cobra.Command, args []string) error {
 
 	if err := loadSendKeys(); err != nil {
 		return err
-	}
-
-	if usingSmartOption() {
-		if err := loadReceiveKeys(); err != nil {
-			return err
-		}
 	}
 
 	if jobInfo.IncrementalSnapshot.Name != "" && fullIncremental != "" {

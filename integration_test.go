@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	oglog "log"
 	"net/url"
 	"os"
 	"os/exec"
@@ -39,12 +40,14 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/op/go-logging"
 
 	"github.com/someone1/zfsbackup-go/backends"
 	"github.com/someone1/zfsbackup-go/backup"
 	"github.com/someone1/zfsbackup-go/cmd"
 	"github.com/someone1/zfsbackup-go/config"
 	"github.com/someone1/zfsbackup-go/files"
+	"github.com/someone1/zfsbackup-go/log"
 )
 
 const s3TestBucketName = "s3integrationbuckettest"
@@ -177,9 +180,15 @@ func TestVersion(t *testing.T) {
 func copyDataset(t *testing.T, source, dest string) {
 	t.Helper()
 
+	t.Logf("Copying %s to %s", source, dest)
+
 	// nolint:gosec // The input is safe
 	sendCMD := exec.Command("zfs", "send", "-R", source)
 	receiveCMD := exec.Command("zfs", "receive", dest)
+	sendBuf := bytes.NewBuffer(nil)
+	recBuf := bytes.NewBuffer(nil)
+	sendCMD.Stderr = sendBuf
+	receiveCMD.Stderr = recBuf
 
 	var err error
 	sendCMD.Stdout, err = receiveCMD.StdinPipe()
@@ -193,11 +202,11 @@ func copyDataset(t *testing.T, source, dest string) {
 	}()
 
 	if sErr := sendCMD.Run(); sErr != nil {
-		t.Fatalf("unexpected error sending dataset %s to %s - %v", source, dest, sErr)
+		t.Fatalf("unexpected error sending dataset %s to %s - %v: %s", source, dest, sErr, sendBuf.String())
 	}
 
 	if err = <-errChan; err != nil {
-		t.Fatalf("unexpected error receiving dataset %s to %s - %v", source, dest, err)
+		t.Fatalf("unexpected error receiving dataset %s to %s - %v: %s", source, dest, err, recBuf.String())
 	}
 }
 
@@ -207,9 +216,11 @@ func deleteDataset(t *testing.T, name string) {
 
 	// nolint:gosec // The input is safe
 	destroyCmd := exec.Command("zfs", "destroy", "-f", "-r", name)
+	destroyBuf := bytes.NewBuffer(nil)
+	destroyCmd.Stderr = destroyBuf
 
 	if err := destroyCmd.Run(); err != nil {
-		t.Fatalf("unexpected error deleting dataset %s - %v", name, err)
+		t.Fatalf("unexpected error deleting dataset %s - %v: %s", name, err, destroyBuf.String())
 	}
 }
 
@@ -217,14 +228,19 @@ func compareDirs(t *testing.T, source, dest string) {
 	t.Helper()
 
 	// nolint:gosec // The input is safe
-	diffCmd := exec.Command("diff", "-rq", source, dest)
-	err := diffCmd.Run()
-	if err != nil {
+	diffCmd := exec.Command("diff", "-rq", "--exclude", ".zfs", source, dest)
+	errBuf := bytes.NewBuffer(nil)
+	diffCmd.Stderr = errBuf
+
+	if err := diffCmd.Run(); err != nil {
+		t.Logf("diff output: %s", errBuf.String())
 		t.Fatalf("unexpected difference comparing %s with %s: %v", source, dest, err)
 	}
 }
 
 func TestIntegration(t *testing.T) {
+	ctx := context.Background()
+
 	removeAzureBucket := setupAzureBucket(t)
 	defer removeAzureBucket()
 
@@ -234,69 +250,73 @@ func TestIntegration(t *testing.T) {
 	s3bucket := fmt.Sprintf("%s://%s", backends.AWSS3BackendPrefix, s3TestBucketName)
 	azurebucket := fmt.Sprintf("%s://%s", backends.AzureBackendPrefix, azureTestBucketName)
 	bucket := fmt.Sprintf("%s,%s", s3bucket, azurebucket)
+	dataset := fmt.Sprintf("tank/%s", t.Name())
+
+	copyDataset(t, "tank/data@c", dataset)
+	defer deleteDataset(t, dataset)
 
 	// Azurite doesn't seem to like '|' so making separator '-'
 	// Backup Tests
 	t.Run("Backup", func(t *testing.T) {
 		cmd.ResetSendJobInfo()
 
+		logBuf := bytes.NewBuffer(nil)
+		log.AppLogger.SetBackend(logging.MultiLogger(logging.NewLogBackend(logBuf, "", oglog.Ldate|oglog.Ltime)))
+
 		// Manual Full Backup
-		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "tank/data@a", bucket})
-		if err := cmd.RootCmd.Execute(); err != nil {
+		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", fmt.Sprintf("%s@a", dataset), bucket})
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing backup: %v", err)
 		}
 
 		cmd.ResetSendJobInfo()
 
 		// Bookmark setup
-		if err := exec.Command("zfs", "bookmark", "tank/data@a", "tank/data#a").Run(); err != nil {
-			t.Fatalf("unexpected error creating bookmark tank/data#a: %v", err)
+		// nolint:gosec // The input is safe
+		if err := exec.Command("zfs", "bookmark", fmt.Sprintf("%s@a", dataset), fmt.Sprintf("%s#a", dataset)).Run(); err != nil {
+			t.Fatalf("unexpected error creating bookmark %s#a: %v", dataset, err)
 		}
 
-		if err := exec.Command("zfs", "destroy", "tank/data@a").Run(); err != nil {
-			t.Fatalf("unexpected error destroying snapshot tank/data@a: %v", err)
+		// nolint:gosec // The input is safe
+		if err := exec.Command("zfs", "destroy", fmt.Sprintf("%s@a", dataset)).Run(); err != nil {
+			t.Fatalf("unexpected error destroying snapshot %s@a: %v", dataset, err)
 		}
 
 		// Manual Incremental Backup from bookmark
-		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "-i", "tank/data#a", "tank/data@b", bucket})
-		if err := cmd.RootCmd.Execute(); err != nil {
+		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "-i", fmt.Sprintf("%s#a", dataset), fmt.Sprintf("%s@b", dataset), bucket})
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing backup: %v", err)
 		}
 
 		cmd.ResetSendJobInfo()
 
 		// Another Bookmark setup
-		if err := exec.Command("zfs", "bookmark", "tank/data@b", "tank/data#b").Run(); err != nil {
-			t.Fatalf("unexpected error creating bookmark tank/data#b: %v", err)
+		// nolint:gosec // The input is safe
+		if err := exec.Command("zfs", "bookmark", fmt.Sprintf("%s@b", dataset), fmt.Sprintf("%s#b", dataset)).Run(); err != nil {
+			t.Fatalf("unexpected error creating bookmark %s#b: %v", dataset, err)
 		}
 
-		if err := exec.Command("zfs", "destroy", "tank/data@b").Run(); err != nil {
-			t.Fatalf("unexpected error destroying snapshot tank/data@b: %v", err)
+		// nolint:gosec // The input is safe
+		if err := exec.Command("zfs", "destroy", fmt.Sprintf("%s@b", dataset)).Run(); err != nil {
+			t.Fatalf("unexpected error destroying snapshot %s@b: %v", dataset, err)
 		}
 
 		// "Smart" incremental Backup from bookmark
-		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "--compressor", "xz", "--compressionLevel", "2", "--increment", "tank/data", bucket})
-		if err := cmd.RootCmd.Execute(); err != nil {
+		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "--compressor", "xz", "--compressionLevel", "2", "--increment", dataset, bucket})
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing backup: %v", err)
 		}
 
 		cmd.ResetSendJobInfo()
 
 		// Smart Incremental Backup - Nothing to do
-		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "--increment", "tank/data", bucket})
-		if err := cmd.RootCmd.Execute(); err != backup.ErrNoOp {
+		cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--separator", "+", "--increment", dataset, bucket})
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != backup.ErrNoOp {
 			t.Fatalf("expecting error %v, but got %v instead", backup.ErrNoOp, err)
 		}
 
 		cmd.ResetSendJobInfo()
 	})
-
-	// Restore tank/data for tests
-	deleteDataset(t, "tank/data")
-	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "--auto", "tank/data", s3bucket, "tank/data"})
-	if err := cmd.RootCmd.Execute(); err != nil {
-		t.Fatalf("error performing receive: %v", err)
-	}
 
 	var restoreTest = []struct {
 		backend string
@@ -307,13 +327,18 @@ func TestIntegration(t *testing.T) {
 		{"Azure", azurebucket, "tank/data2"},
 	}
 	for _, test := range restoreTest {
-		t.Run(fmt.Sprintf("List%s", test.backend), listWrapper(test.bucket))
-		t.Run(fmt.Sprintf("Restore%s", test.backend), restoreWrapper(test.bucket, test.target))
+		t.Run(fmt.Sprintf("List%s", test.backend), listWrapper(dataset, test.bucket))
+		t.Run(fmt.Sprintf("Restore%s", test.backend), restoreWrapper(dataset, test.bucket, test.target))
 	}
 }
 
-func listWrapper(bucket string) func(*testing.T) {
+func listWrapper(dataset, bucket string) func(*testing.T) {
 	return func(t *testing.T) {
+		ctx := context.Background()
+
+		logBuf := bytes.NewBuffer(nil)
+		log.AppLogger.SetBackend(logging.MultiLogger(logging.NewLogBackend(logBuf, "", oglog.Ldate|oglog.Ltime)))
+
 		old := config.Stdout
 		buf := bytes.NewBuffer(nil)
 		config.Stdout = buf
@@ -330,7 +355,7 @@ func listWrapper(bucket string) func(*testing.T) {
 			{"", time.Time{}, time.Time{}, 1, 3},
 			{"t*", time.Time{}, time.Time{}, 1, 3},
 			{"v*", time.Time{}, time.Time{}, 0, 0},
-			{"tank/data", time.Time{}, time.Time{}, 1, 3},
+			{dataset, time.Time{}, time.Time{}, 1, 3},
 			{"tan", time.Time{}, time.Time{}, 0, 0},
 			// before Tests
 			{"", time.Time{}, time.Now(), 1, 3},
@@ -341,46 +366,54 @@ func listWrapper(bucket string) func(*testing.T) {
 		}
 
 		for _, test := range listTests {
-			opts := []string{"list", "--logLevel", logLevel, "--jsonOutput"}
-			if test.volumeName != "" {
-				opts = append(opts, "--volumeName", test.volumeName)
-			}
-			if !test.after.IsZero() {
-				opts = append(opts, "--after", test.after.Format(time.RFC3339[:19]))
-			}
-			if !test.before.IsZero() {
-				opts = append(opts, "--before", test.before.Format(time.RFC3339[:19]))
-			}
-
-			cmd.ResetListJobInfo()
-
-			cmd.RootCmd.SetArgs(append(opts, bucket))
-			if err := cmd.RootCmd.Execute(); err != nil {
-				t.Fatalf("error performing backup: %v", err)
-			}
-
-			jout := make(map[string][]*files.JobInfo)
-			if err := json.Unmarshal(buf.Bytes(), &jout); err != nil {
-				t.Fatalf("error parsing json output: %v", err)
-			}
-
-			if len(jout) != test.keys || len(jout["tank/data"]) != test.entries {
-				t.Fatalf("expected %d keys and %d entries, got %d keys and %d entries", test.keys, test.entries, len(jout), len(jout["tank/data"]))
-			}
-
-			if len(jout["tank/data"]) == 3 {
-				if jout["tank/data"][0].BaseSnapshot.Name != "a" || jout["tank/data"][1].BaseSnapshot.Name != "b" || jout["tank/data"][2].BaseSnapshot.Name != "c" {
-					t.Fatalf("expected snapshot order a -> b -> c, but got %s -> %s -> %s instead", jout["tank/data"][0].BaseSnapshot.Name, jout["tank/data"][1].BaseSnapshot.Name, jout["tank/data"][2].BaseSnapshot.Name)
+			test := test
+			t.Run(test.volumeName, func(t *testing.T) {
+				opts := []string{"list", "--logLevel", logLevel, "--jsonOutput"}
+				if test.volumeName != "" {
+					opts = append(opts, "--volumeName", test.volumeName)
 				}
-			}
+				if !test.after.IsZero() {
+					opts = append(opts, "--after", test.after.Format(time.RFC3339[:19]))
+				}
+				if !test.before.IsZero() {
+					opts = append(opts, "--before", test.before.Format(time.RFC3339[:19]))
+				}
 
-			buf.Reset()
+				cmd.ResetListJobInfo()
+
+				cmd.RootCmd.SetArgs(append(opts, bucket))
+				if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
+					t.Fatalf("error performing backup: %v", err)
+				}
+
+				jout := make(map[string][]*files.JobInfo)
+				if err := json.Unmarshal(buf.Bytes(), &jout); err != nil {
+					t.Fatalf("error parsing json output: %v", err)
+				}
+
+				if len(jout) != test.keys || len(jout[dataset]) != test.entries {
+					t.Fatalf("expected %d keys and %d entries, got %d keys and %d entries", test.keys, test.entries, len(jout), len(jout[dataset]))
+				}
+
+				if len(jout[dataset]) == 3 {
+					if jout[dataset][0].BaseSnapshot.Name != "a" || jout[dataset][1].BaseSnapshot.Name != "b" || jout[dataset][2].BaseSnapshot.Name != "c" {
+						t.Fatalf("expected snapshot order a -> b -> c, but got %s -> %s -> %s instead", jout[dataset][0].BaseSnapshot.Name, jout[dataset][1].BaseSnapshot.Name, jout[dataset][2].BaseSnapshot.Name)
+					}
+				}
+
+				buf.Reset()
+			})
 		}
 	}
 }
 
-func restoreWrapper(bucket, target string) func(*testing.T) {
+func restoreWrapper(dataset, bucket, target string) func(*testing.T) {
 	return func(t *testing.T) {
+		ctx := context.Background()
+
+		logBuf := bytes.NewBuffer(nil)
+		log.AppLogger.SetBackend(logging.MultiLogger(logging.NewLogBackend(logBuf, "", oglog.Ldate|oglog.Ltime)))
+
 		scratchDir, sErr := ioutil.TempDir("", "")
 		if sErr != nil {
 			t.Fatalf("could not create temp scratch dir: %v", sErr)
@@ -391,24 +424,24 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 		cmd.ResetReceiveJobInfo()
 
 		// Restore to snapshot @a (full)
-		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "tank/data@a", bucket, target})
-		if err := cmd.RootCmd.Execute(); err != nil {
+		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", fmt.Sprintf("%s@a", dataset), bucket, target})
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
 
 		cmd.ResetReceiveJobInfo()
 
 		// Restore to snapshot @b from @a (incremental)
-		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "-i", "tank/data@a", "tank/data@b", bucket, target})
-		if err := cmd.RootCmd.Execute(); err != nil {
+		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "-i", fmt.Sprintf("%s@a", dataset), fmt.Sprintf("%s@b", dataset), bucket, target})
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
 
 		cmd.ResetReceiveJobInfo()
 
 		// Restore to latest snapshot @c (auto)
-		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "--workingDirectory", scratchDir, "-F", "--auto", "tank/data", bucket, target})
-		if err := cmd.RootCmd.Execute(); err != nil {
+		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "--workingDirectory", scratchDir, "-F", "--auto", dataset, bucket, target})
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
 
@@ -417,8 +450,8 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 		cmd.ResetReceiveJobInfo()
 
 		// Restore to snapshot @c from origin tank/data@b (auto)
-		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "--auto", "-o", "origin=tank/data@b", "tank/data", bucket, target + "origin"})
-		if err := cmd.RootCmd.Execute(); err != nil {
+		cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--separator", "+", "-F", "--auto", "-o", "origin=tank/data@b", dataset, bucket, target + "origin"})
+		if err := cmd.RootCmd.ExecuteContext(ctx); err != nil {
 			t.Fatalf("error performing receive: %v", err)
 		}
 
@@ -428,9 +461,11 @@ func restoreWrapper(bucket, target string) func(*testing.T) {
 	}
 }
 
-// TestEncryption expects private.pgp and public.pgp to be available with the test@example.com user
-func TestEncryption(t *testing.T) {
-	tempDir, err := ioutil.TempDir("", "pgptest")
+// TestEncryptionAndSign expects private.pgp and public.pgp to be available with the test@example.com user
+func TestEncryptionAndSign(t *testing.T) {
+	ctx := context.Background()
+
+	tempDir, err := ioutil.TempDir("", t.Name())
 	if err != nil {
 		t.Fatalf("error preparing temp dir for tests - %v", err)
 	}
@@ -449,33 +484,106 @@ func TestEncryption(t *testing.T) {
 		newDataset = fmt.Sprintf("tank/%snew", t.Name())
 	)
 
-	copyDataset(t, "tank/data@a", dataset)
+	copyDataset(t, "tank/data@c", dataset)
 	defer deleteDataset(t, dataset)
 	defer deleteDataset(t, newDataset)
 
-	dataset += "@a"
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr bool
+	}{
+		{
+			"Encrypted Backup - Fail no public keyring",
+			[]string{
+				"send", "--logLevel", logLevel, "--workingDirectory", scratchDir,
+				"--secretKeyRingPath", "private.pgp", "--encryptTo", user, fmt.Sprintf("%s@a", dataset), target,
+			},
+			true,
+		},
+		{
+			"Signed Backup - Fail no secret keyring",
+			[]string{
+				"send", "--logLevel", logLevel, "--workingDirectory", scratchDir,
+				"--publicKeyRingPath", "public.pgp", "--signFrom", user, fmt.Sprintf("%s@a", dataset), target,
+			},
+			true,
+		},
+		{
+			"Manual Full Backup - Encrypted",
+			[]string{
+				"send", "--logLevel", logLevel, "--workingDirectory", scratchDir,
+				"--publicKeyRingPath", "public.pgp", "--encryptTo", user, fmt.Sprintf("%s@a", dataset), target,
+			},
+			false,
+		},
+		{
+			"Manual Incremental Backup - Signed",
+			[]string{
+				"send", "--logLevel", logLevel, "--workingDirectory", scratchDir,
+				"--secretKeyRingPath", "private.pgp", "--signFrom", user, "-i", fmt.Sprintf("%s@a", dataset), fmt.Sprintf("%s@b", dataset), target,
+			},
+			false,
+		},
+		{
+			"Smart Encrypted Backup - Fail no secret keyring",
+			[]string{
+				"send", "--logLevel", logLevel, "--workingDirectory", scratchDir,
+				"--publicKeyRingPath", "public.pgp", "--encryptTo", user, "--increment", dataset, target,
+			},
+			true,
+		},
+		{
+			"Smart Encrypted & Signed Backup - Success",
+			[]string{
+				"send", "--logLevel", logLevel, "--workingDirectory", scratchDir,
+				"--publicKeyRingPath", "public.pgp", "--secretKeyRingPath", "private.pgp", "--encryptTo", user, "--signFrom", user, "--increment", dataset, target,
+			},
+			false,
+		},
+		{
+			"Restore Failure - No Key Ring",
+			[]string{"receive", "--logLevel", logLevel, "--workingDirectory", scratchDir, "-F", fmt.Sprintf("%s@a", dataset), target, newDataset},
+			true,
+		},
+		{
+			"Full Restore success - Encrypted",
+			[]string{"receive", "--logLevel", logLevel, "--workingDirectory", scratchDir, "--secretKeyRingPath", "private.pgp", "--encryptTo", user, "-F", fmt.Sprintf("%s@a", dataset), target, newDataset},
+			false,
+		},
+		{
+			"Incremental Restore success - Signed",
+			[]string{"receive", "--logLevel", logLevel, "--workingDirectory", scratchDir, "--publicKeyRingPath", "public.pgp", "--signFrom", user, "-F", "-i", fmt.Sprintf("%s@a", dataset), fmt.Sprintf("%s@b", dataset), target, newDataset},
+			false,
+		},
+		{
+			"Smart Restore success - Encrypted & Signed",
+			[]string{"receive", "--logLevel", logLevel, "--workingDirectory", scratchDir, "--publicKeyRingPath", "public.pgp", "--secretKeyRingPath", "private.pgp", "--encryptTo", user, "--signFrom", user, "-F", "--auto", dataset, target, newDataset},
+			false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			switch tt.args[0] {
+			case "send":
+				cmd.ResetSendJobInfo()
+			case "receive":
+				cmd.ResetReceiveJobInfo()
+			}
 
-	cmd.ResetSendJobInfo()
+			cmd.RootCmd.SetArgs(tt.args)
 
-	// Manual Full Backup
-	cmd.RootCmd.SetArgs([]string{"send", "--logLevel", logLevel, "--workingDirectory", scratchDir, "--publicKeyRingPath", "public.pgp", "--encryptTo", user, dataset, target})
-	if err := cmd.RootCmd.Execute(); err != nil {
-		t.Fatalf("error performing backup: %v", err)
+			buf := bytes.NewBuffer(nil)
+
+			log.AppLogger.SetBackend(logging.MultiLogger(logging.NewLogBackend(buf, "", oglog.Ldate|oglog.Ltime)))
+
+			if err := cmd.RootCmd.ExecuteContext(ctx); (err != nil) != tt.wantErr {
+				t.Logf("%s", buf.String())
+				t.Errorf("zfsbackup error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 
-	// Restore Failure
-	cmd.ResetReceiveJobInfo()
-
-	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--workingDirectory", scratchDir, "-F", dataset, target, newDataset})
-	if err := cmd.RootCmd.Execute(); err == nil {
-		t.Fatalf("expected an error performing receive")
-	}
-
-	// Restore success
-	cmd.ResetReceiveJobInfo()
-
-	cmd.RootCmd.SetArgs([]string{"receive", "--logLevel", logLevel, "--workingDirectory", scratchDir, "--secretKeyRingPath", "private.pgp", "--encryptTo", user, "-F", dataset, target, newDataset})
-	if err := cmd.RootCmd.Execute(); err != nil {
-		t.Fatalf("error performing receive: %v", err)
-	}
+	compareDirs(t, "/tank/data", fmt.Sprintf("/%s", newDataset))
 }

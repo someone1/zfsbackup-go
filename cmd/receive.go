@@ -45,9 +45,9 @@ var receiveCmd = &cobra.Command{
 		log.AppLogger.Infof("Limiting the number of active files to %d", jobInfo.MaxFileBuffer)
 
 		if jobInfo.AutoRestore {
-			return backup.AutoRestore(context.Background(), &jobInfo)
+			return backup.AutoRestore(cmd.Context(), &jobInfo)
 		}
-		return backup.Receive(context.Background(), &jobInfo)
+		return backup.Receive(cmd.Context(), &jobInfo)
 	},
 }
 
