@@ -64,7 +64,7 @@ func ProcessSmartOptions(ctx context.Context, jobInfo *files.JobInfo) error {
 	for i := range snapshots {
 		log.AppLogger.Debugf("Considering snapshot %s", snapshots[i].Name)
 		if !snapshots[i].Bookmark {
-			if (jobInfo.SnapshotPrefix == "" || strings.HasPrefix(snapshots[i].Name, jobInfo.SnapshotPrefix)) {
+			if jobInfo.SnapshotPrefix == "" || strings.HasPrefix(snapshots[i].Name, jobInfo.SnapshotPrefix) {
 				log.AppLogger.Debugf("Matched snapshot: %s", snapshots[i].Name)
 				jobInfo.BaseSnapshot = snapshots[i]
 				break
