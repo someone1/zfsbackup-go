@@ -63,9 +63,13 @@ func ProcessSmartOptions(ctx context.Context, jobInfo *files.JobInfo) error {
 	}
 	// Base Snapshots cannot be a bookmark
 	for i := range snapshots {
+		log.AppLogger.Debugf("Considering snapshot %s", snapshots[i].Name)
 		if !snapshots[i].Bookmark {
-			jobInfo.BaseSnapshot = snapshots[i]
-			break
+			if jobInfo.SnapshotPrefix == "" || strings.HasPrefix(snapshots[i].Name, jobInfo.SnapshotPrefix) {
+				log.AppLogger.Debugf("Matched snapshot: %s", snapshots[i].Name)
+				jobInfo.BaseSnapshot = snapshots[i]
+				break
+			}
 		}
 	}
 	if jobInfo.BaseSnapshot.Name == "" {

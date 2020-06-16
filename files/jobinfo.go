@@ -44,6 +44,7 @@ type JobInfo struct {
 	VolumeName              string
 	BaseSnapshot            SnapshotInfo
 	IncrementalSnapshot     SnapshotInfo
+	SnapshotPrefix          string
 	Compressor              string
 	CompressionLevel        int
 	Separator               string
