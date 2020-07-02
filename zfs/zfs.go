@@ -135,6 +135,11 @@ func GetZFSSendCommand(ctx context.Context, j *files.JobInfo) *exec.Cmd {
 		zfsArgs = append(zfsArgs, "-c")
 	}
 
+	if j.Raw {
+		log.AppLogger.Infof("Enabling the raw (-w) flag on the send.")
+		zfsArgs = append(zfsArgs, "-w")
+	}
+
 	if j.IncrementalSnapshot.Name != "" {
 		incrementalName := j.IncrementalSnapshot.Name
 		if j.IncrementalSnapshot.Bookmark {

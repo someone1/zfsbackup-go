@@ -77,6 +77,7 @@ func init() {
 	sendCmd.Flags().StringVarP(&jobInfo.IncrementalSnapshot.Name, "incremental", "i", "", "See the -i flag on zfs send for more information")
 	sendCmd.Flags().StringVarP(&fullIncremental, "intermediary", "I", "", "See the -I flag on zfs send for more information")
 	sendCmd.Flags().BoolVarP(&jobInfo.Properties, "properties", "p", false, "See the -p flag on zfs send for more information.")
+	sendCmd.Flags().BoolVarP(&jobInfo.Raw, "raw", "w", false, "See the -w flag on zfs send for more information.")
 
 	// Specific to download only
 	sendCmd.Flags().Uint64Var(
