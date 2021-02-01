@@ -15,7 +15,7 @@ require (
 	github.com/dustin/go-humanize v1.0.0
 	github.com/juju/ratelimit v1.0.1
 	github.com/klauspost/compress v1.10.6 // indirect
-	github.com/klauspost/pgzip v1.2.4
+	github.com/klauspost/pgzip v1.2.5
 	github.com/kurin/blazer v0.5.3
 	github.com/mattn/go-ieproxy v0.0.1 // indirect
 	github.com/miolini/datacounter v1.0.2
