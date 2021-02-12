@@ -63,7 +63,7 @@ func ProcessSmartOptions(ctx context.Context, jobInfo *files.JobInfo) error {
 	}
 	// Base Snapshots cannot be a bookmark
 	for i := range snapshots {
-		log.AppLogger.Debugf("Considering snapshot %s", snapshots[i].Name)
+		log.AppLogger.Debugf("Base: Considering snapshot %s", snapshots[i].Name)
 		if !snapshots[i].Bookmark {
 			if jobInfo.SnapshotPrefix == "" || strings.HasPrefix(snapshots[i].Name, jobInfo.SnapshotPrefix) {
 				log.AppLogger.Debugf("Matched snapshot: %s", snapshots[i].Name)
@@ -148,6 +148,8 @@ func ProcessSmartOptions(ctx context.Context, jobInfo *files.JobInfo) error {
 		if lastBackup[0].Equal(&snapshots[0]) {
 			return ErrNoOp
 		}
+
+		log.AppLogger.Debugf("Last Comparable Snap: %s", lastComparableSnapshots[0])
 
 		jobInfo.IncrementalSnapshot = *lastBackup[0]
 	}
@@ -235,6 +237,8 @@ func Backup(pctx context.Context, jobInfo *files.JobInfo) error {
 	if fileBufferSize == 0 {
 		fileBufferSize = 1
 	}
+
+	log.AppLogger.Debugf("Base snapshot: %s", jobInfo.BaseSnapshot)
 
 	// Validate the snapshots we want to use exist
 	if ok, verr := validateSnapShotExists(ctx, &jobInfo.BaseSnapshot, jobInfo.VolumeName, false); verr != nil {
