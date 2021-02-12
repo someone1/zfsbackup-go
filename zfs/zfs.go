@@ -146,7 +146,7 @@ func GetZFSSendCommand(ctx context.Context, j *files.JobInfo) *exec.Cmd {
 			zfsArgs = append(zfsArgs, "-I", incrementalName)
 		} else {
 			log.AppLogger.Infof("Enabling an incremental stream (-i) on the send to snapshot %s", incrementalName)
-			zfsArgs = append(zfsArgs, "-i", incrementalName)
+			zfsArgs = append(zfsArgs, "-I", incrementalName)
 		}
 	}
 
