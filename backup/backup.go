@@ -149,15 +149,6 @@ func ProcessSmartOptions(ctx context.Context, jobInfo *files.JobInfo) error {
 			return ErrNoOp
 		}
 
-		if ok, verr := validateSnapShotExists(ctx, lastComparableSnapshots[0], jobInfo.VolumeName, true); verr != nil {
-			return verr
-		} else if !ok {
-			log.AppLogger.Infof(
-				"Last Full backup was done on %v but is no longer found in the local target, performing full backup.",
-				lastComparableSnapshots[0].CreationTime, jobInfo.FullIfOlderThan,
-			)
-			return nil
-		}
 		jobInfo.IncrementalSnapshot = *lastBackup[0]
 	}
 	return nil
