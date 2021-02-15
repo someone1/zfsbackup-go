@@ -3,7 +3,7 @@ module github.com/someone1/zfsbackup-go
 go 1.13
 
 require (
-	cloud.google.com/go/storage v1.8.0
+	cloud.google.com/go/storage v1.10.0
 	github.com/Azure/azure-pipeline-go v0.2.2 // indirect
 	github.com/Azure/azure-sdk-for-go v42.3.0+incompatible
 	github.com/Azure/azure-storage-blob-go v0.8.0
@@ -25,7 +25,7 @@ require (
 	github.com/satori/go.uuid v1.2.0 // indirect
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5 // indirect
-	golang.org/x/crypto v0.0.0-20200510223506-06a226fb4e37
-	golang.org/x/sync v0.0.0-20200317015054-43a5402ce75a
-	google.golang.org/api v0.25.0
+	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
+	golang.org/x/sync v0.0.0-20201207232520-09787c993a3a
+	google.golang.org/api v0.40.0
 )
