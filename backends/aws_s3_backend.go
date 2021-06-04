@@ -373,7 +373,7 @@ func (a *AWSS3Backend) List(ctx context.Context, prefix string) ([]string, error
 		resp, err = a.client.ListObjectsV2WithContext(ctx, &s3.ListObjectsV2Input{
 			Bucket:            aws.String(a.bucketName),
 			MaxKeys:           aws.Int64(1000),
-			Prefix:            aws.String(prefix),
+			Prefix:            aws.String(a.prefix + prefix),
 			ContinuationToken: resp.NextContinuationToken,
 		})
 		if err != nil {
