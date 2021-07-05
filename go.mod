@@ -4,9 +4,8 @@ go 1.13
 
 require (
 	cloud.google.com/go/storage v1.8.0
-	github.com/Azure/azure-pipeline-go v0.2.2 // indirect
 	github.com/Azure/azure-sdk-for-go v42.3.0+incompatible
-	github.com/Azure/azure-storage-blob-go v0.8.0
+	github.com/Azure/azure-storage-blob-go v0.14.0
 	github.com/Azure/go-autorest/autorest v0.10.2 // indirect
 	github.com/Azure/go-autorest/autorest/to v0.3.0 // indirect
 	github.com/aws/aws-sdk-go v1.31.4
@@ -17,7 +16,6 @@ require (
 	github.com/klauspost/compress v1.10.6 // indirect
 	github.com/klauspost/pgzip v1.2.4
 	github.com/kurin/blazer v0.5.3
-	github.com/mattn/go-ieproxy v0.0.1 // indirect
 	github.com/miolini/datacounter v1.0.2
 	github.com/nightlyone/lockfile v1.0.0
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
@@ -25,7 +23,7 @@ require (
 	github.com/satori/go.uuid v1.2.0 // indirect
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5 // indirect
-	golang.org/x/crypto v0.0.0-20200510223506-06a226fb4e37
+	golang.org/x/crypto v0.0.0-20201002170205-7f63de1d35b0
 	golang.org/x/sync v0.0.0-20200317015054-43a5402ce75a
 	google.golang.org/api v0.25.0
 )
