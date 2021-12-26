@@ -120,6 +120,11 @@ func GetZFSSendCommand(ctx context.Context, j *files.JobInfo) *exec.Cmd {
 		zfsArgs = append(zfsArgs, "-R")
 	}
 
+	if j.SkipMissing {
+		log.AppLogger.Infof("Enabling the skip-missing (-s) flag on the send.")
+		zfsArgs = append(zfsArgs, "-s")
+	}
+
 	if j.Deduplication {
 		log.AppLogger.Infof("Enabling the deduplication (-D) flag on the send.")
 		zfsArgs = append(zfsArgs, "-D")

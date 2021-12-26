@@ -73,6 +73,7 @@ func init() {
 
 	// ZFS send command options
 	sendCmd.Flags().BoolVarP(&jobInfo.Replication, "replication", "R", false, "See the -R flag on zfs send for more information")
+	sendCmd.Flags().BoolVarP(&jobInfo.SkipMissing, "skip-missing", "s", false, "See the -s flag on zfs send for more information")
 	sendCmd.Flags().BoolVarP(&jobInfo.Deduplication, "deduplication", "D", false, "See the -D flag for zfs send for more information.")
 	sendCmd.Flags().StringVarP(&jobInfo.IncrementalSnapshot.Name, "incremental", "i", "", "See the -i flag on zfs send for more information")
 	sendCmd.Flags().StringVarP(&fullIncremental, "intermediary", "I", "", "See the -I flag on zfs send for more information")
@@ -184,6 +185,7 @@ func ResetSendJobInfo() {
 	resetRootFlags()
 	// ZFS send command options
 	jobInfo.Replication = false
+	jobInfo.SkipMissing = false
 	jobInfo.Deduplication = false
 	jobInfo.IncrementalSnapshot = files.SnapshotInfo{}
 	jobInfo.BaseSnapshot = files.SnapshotInfo{}
