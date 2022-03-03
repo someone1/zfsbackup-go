@@ -18,7 +18,7 @@ require (
 	github.com/klauspost/pgzip v1.2.4
 	github.com/kurin/blazer v0.5.3
 	github.com/mattn/go-ieproxy v0.0.1 // indirect
-	github.com/miolini/datacounter v1.0.2
+	github.com/miolini/datacounter v1.0.3
 	github.com/nightlyone/lockfile v1.0.0
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	github.com/pkg/errors v0.9.1
