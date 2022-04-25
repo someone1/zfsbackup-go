@@ -234,9 +234,10 @@ func (a *AWSS3Backend) Upload(ctx context.Context, vol *files.VolumeInfo) error 
 
 	// Do a MultiPart Upload - force the s3manager to compute each chunks md5 hash
 	_, err := a.uploader.UploadWithContext(ctx, &s3manager.UploadInput{
-		Bucket: aws.String(a.bucketName),
-		Key:    aws.String(key),
-		Body:   r,
+		Bucket:       aws.String(a.bucketName),
+		Key:          aws.String(key),
+		Body:         r,
+		StorageClass: getS3EnvironmentOverride("AWS_S3_STORAGE_CLASS"),
 	}, s3manager.WithUploaderRequestOptions(options...))
 
 	if err != nil {
@@ -382,4 +383,12 @@ func (a *AWSS3Backend) List(ctx context.Context, prefix string) ([]string, error
 	}
 
 	return l, nil
+}
+
+func getS3EnvironmentOverride(envVar string) *string {
+	storageClass := os.Getenv(envVar)
+	if storageClass != "" {
+		return aws.String(storageClass)
+	}
+	return nil
 }
