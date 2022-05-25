@@ -57,7 +57,7 @@ var (
 // ProcessSmartOptions will compute the snapshots to use
 // nolint:funlen,gocyclo // Difficult to break this up
 func ProcessSmartOptions(ctx context.Context, jobInfo *files.JobInfo) error {
-	snapshots, err := zfs.GetSnapshotsAndBookmarks(context.Background(), jobInfo.VolumeName)
+	snapshots, err := zfs.GetSnapshotsAndBookmarks(context.Background(), zfs.GetLocalVolumeName(jobInfo))
 	if err != nil {
 		return err
 	}
@@ -246,7 +246,7 @@ func Backup(pctx context.Context, jobInfo *files.JobInfo) error {
 	}
 
 	// Validate the snapshots we want to use exist
-	if ok, verr := validateSnapShotExists(ctx, &jobInfo.BaseSnapshot, jobInfo.VolumeName, false); verr != nil {
+	if ok, verr := validateSnapShotExists(ctx, &jobInfo.BaseSnapshot, zfs.GetLocalVolumeName(jobInfo), false); verr != nil {
 		log.AppLogger.Errorf("Cannot validate if selected base snapshot exists due to error - %v", verr)
 		return verr
 	} else if !ok {
@@ -255,7 +255,7 @@ func Backup(pctx context.Context, jobInfo *files.JobInfo) error {
 	}
 
 	if jobInfo.IncrementalSnapshot.Name != "" {
-		if ok, verr := validateSnapShotExists(ctx, &jobInfo.IncrementalSnapshot, jobInfo.VolumeName, true); verr != nil {
+		if ok, verr := validateSnapShotExists(ctx, &jobInfo.IncrementalSnapshot, zfs.GetLocalVolumeName(jobInfo), true); verr != nil {
 			log.AppLogger.Errorf("Cannot validate if selected incremental snapshot exists due to error - %v", verr)
 			return verr
 		} else if !ok {
