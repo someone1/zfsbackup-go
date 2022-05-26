@@ -160,6 +160,7 @@ func ProcessSmartOptions(ctx context.Context, jobInfo *files.JobInfo) error {
 		}
 		jobInfo.IncrementalSnapshot = *lastBackup[0]
 	}
+	jobInfo.IntermediaryIncremental = jobInfo.SmartIntermediaryIncremental
 	return nil
 }
 
