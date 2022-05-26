@@ -31,6 +31,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -54,6 +55,22 @@ var (
 	manifestmutex sync.Mutex
 )
 
+type snapshotFilter struct {
+	prefix      string
+	regexpMatch *regexp.Regexp
+}
+
+func newSnapshotFilter(prefix string, match string) *snapshotFilter {
+	filter := &snapshotFilter{
+		prefix: prefix,
+	}
+	if match != "" {
+		filter.regexpMatch = regexp.MustCompile(match)
+	}
+	log.AppLogger.Debugf("Filtering snapshots with prefix = %s, regex matcher = %v", filter.prefix, filter.regexpMatch)
+	return filter
+}
+
 // ProcessSmartOptions will compute the snapshots to use
 // nolint:funlen,gocyclo // Difficult to break this up
 func ProcessSmartOptions(ctx context.Context, jobInfo *files.JobInfo) error {
@@ -61,11 +78,12 @@ func ProcessSmartOptions(ctx context.Context, jobInfo *files.JobInfo) error {
 	if err != nil {
 		return err
 	}
+	filter := newSnapshotFilter(jobInfo.SnapshotPrefix, jobInfo.SnapshotRegexp)
 	// Base Snapshots cannot be a bookmark
 	for i := range snapshots {
 		log.AppLogger.Debugf("Considering snapshot %s", snapshots[i].Name)
 		if !snapshots[i].Bookmark {
-			if jobInfo.SnapshotPrefix == "" || strings.HasPrefix(snapshots[i].Name, jobInfo.SnapshotPrefix) {
+			if includeSnapshot(&snapshots[i], filter) {
 				log.AppLogger.Debugf("Matched snapshot: %s", snapshots[i].Name)
 				jobInfo.BaseSnapshot = snapshots[i]
 				break
@@ -161,6 +179,11 @@ func ProcessSmartOptions(ctx context.Context, jobInfo *files.JobInfo) error {
 		jobInfo.IncrementalSnapshot = *lastBackup[0]
 	}
 	return nil
+}
+
+func includeSnapshot(snapshot *files.SnapshotInfo, filter *snapshotFilter) bool {
+	return (filter.prefix == "" || strings.HasPrefix(snapshot.Name, filter.prefix)) &&
+		(filter.regexpMatch == nil || filter.regexpMatch.MatchString(snapshot.Name))
 }
 
 // Will list all backups found in the target destination

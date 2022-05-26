@@ -117,6 +117,12 @@ func init() {
 		"",
 		"Only consider snapshots starting with the given snapshot prefix",
 	)
+	sendCmd.Flags().StringVar(
+		&jobInfo.SnapshotRegexp,
+		"snapshotRegexp",
+		"",
+		"Only consider snapshots matching given regex",
+	)
 	sendCmd.Flags().DurationVar(
 		&jobInfo.FullIfOlderThan,
 		"fullIfOlderThan",

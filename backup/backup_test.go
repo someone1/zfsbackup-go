@@ -65,6 +65,19 @@ type errTestFunc func(error) bool
 
 func nilErrTest(e error) bool { return e == nil }
 
+func TestIncludeSnapshot(t *testing.T) {
+	filter := newSnapshotFilter("", "^weekly.*")
+
+	snapInfo := &files.SnapshotInfo{Name: "hourly123"}
+	if includeSnapshot(snapInfo, filter) {
+		t.Errorf("%s incorrectly included", snapInfo.Name)
+	}
+	snapInfo.Name = "weekly456"
+	if !includeSnapshot(snapInfo, filter) {
+		t.Errorf("%s incorrectly excluded", snapInfo.Name)
+	}
+}
+
 func TestRetryUploadChainer(t *testing.T) {
 	_, goodVol, badVol, err := prepareTestVols()
 	if err != nil {
