@@ -45,6 +45,7 @@ type JobInfo struct {
 	BaseSnapshot            SnapshotInfo
 	IncrementalSnapshot     SnapshotInfo
 	SnapshotPrefix          string
+	Raw                     bool
 	Compressor              string
 	CompressionLevel        int
 	Separator               string
