@@ -50,9 +50,11 @@ import (
 	"github.com/someone1/zfsbackup-go/log"
 )
 
-const s3TestBucketName = "s3integrationbuckettest"
-const azureTestBucketName = "azureintegrationbuckettest"
-const logLevel = "debug"
+const (
+	s3TestBucketName    = "s3integrationbuckettest"
+	azureTestBucketName = "azureintegrationbuckettest"
+	logLevel            = "debug"
+)
 
 func setupAzureBucket(t *testing.T) func() {
 	t.Helper()
@@ -166,7 +168,7 @@ func TestVersion(t *testing.T) {
 	buf.Reset()
 	os.Args = []string{config.ProgramName, "version", "--jsonOutput"}
 	main()
-	var jout = struct {
+	jout := struct {
 		Version string
 	}{}
 	if err := json.Unmarshal(buf.Bytes(), &jout); err != nil {
@@ -318,7 +320,7 @@ func TestIntegration(t *testing.T) {
 		cmd.ResetSendJobInfo()
 	})
 
-	var restoreTest = []struct {
+	restoreTest := []struct {
 		backend string
 		bucket  string
 		target  string
@@ -344,7 +346,7 @@ func listWrapper(dataset, bucket string) func(*testing.T) {
 		config.Stdout = buf
 		defer func() { config.Stdout = old }()
 
-		var listTests = []struct {
+		listTests := []struct {
 			volumeName string
 			after      time.Time
 			before     time.Time

@@ -48,9 +48,7 @@ const (
 	blobAPIURL         = "blob.core.windows.net"
 )
 
-var (
-	errContainerMismatch = errors.New("container name in SAS URI is different than destination container provided")
-)
+var errContainerMismatch = errors.New("container name in SAS URI is different than destination container provided")
 
 // AzureBackend integrates with Microsoft's Azure Storage Services.
 type AzureBackend struct {
@@ -215,7 +213,7 @@ func (a *AzureBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error 
 
 	// Finally, finalize the storage blob by giving Azure the block list order
 	_, err = blobURL.CommitBlockList(
-		ctx, blockIDs, azblob.BlobHTTPHeaders{ContentMD5: md5Raw}, azblob.Metadata{}, azblob.BlobAccessConditions{},
+		ctx, blockIDs, azblob.BlobHTTPHeaders{ContentMD5: md5Raw}, azblob.Metadata{}, azblob.BlobAccessConditions{}, azblob.DefaultAccessTier, azblob.BlobTagsMap{},
 	)
 	if err != nil {
 		log.AppLogger.Debugf("azure backend: Error while finalizing volume %s - %v", vol.ObjectName, err)
