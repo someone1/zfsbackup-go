@@ -183,7 +183,7 @@ Usage:
 
 Flags:
       --compressionLevel int       the compression level to use with the compressor. Valid values are between 1-9. (default 6)
-      --compressor string          specify to use the internal (parallel) gzip implementation or an external binary (e.g. gzip, bzip2, pigz, lzma, xz, etc.) Syntax must be similar to the gzip compression tool) to compress the stream for storage. Please take into consideration time, memory, and CPU usage for any of the compressors used. All manifests utilize the internal compressor. (default "internal")
+      --compressor string          specify to use the internal (parallel) gzip implementation or an external binary (e.g. gzip, bzip2, pigz, lzma, xz, etc.) Syntax must be similar to the gzip compression tool) to compress the stream for storage. Please take into consideration time, memory, and CPU usage for any of the compressors used. All manifests utilize the internal compressor. If value is zfs, the zfs stream will be created compressed. See the -c flag on zfs send for more information. (default "internal")
   -D, --deduplication              See the -D flag for zfs send for more information.
       --full                       set this flag to take a full backup of the specified volume using the most recent snapshot.
       --fullIfOlderThan duration   set this flag to do an incremental backup of the most recent snapshot from the most recent snapshot found in the target unless the it's been greater than the time specified in this flag, then do a full backup. (default -1m0s)
@@ -197,12 +197,14 @@ Flags:
       --maxRetryTime duration      the maximum time that can elapse when retrying a failed upload. Use 0 for no limit. (default 12h0m0s)
       --maxUploadSpeed uint        the maximum upload speed (in KB/s) the program should use between all upload workers. Use 0 for no limit
   -p, --properties                 See the -p flag on zfs send for more information.
+  -w, --raw                        See the -w flag on zfs send for more information.
   -R, --replication                See the -R flag on zfs send for more information
       --resume                     set this flag to true when you want to try and resume a previously cancled or failed backup. It is up to the caller to ensure the same command line arguments are provided between the original backup and the resumed one.
       --separator string           the separator to use between object component names. (default "|")
   -s, --skip-missing               See the -s flag on zfs send for more information
+      --snapshotPrefix string      Only consider snapshots starting with the given snapshot prefix
       --uploadChunkSize int        the chunk size, in MiB, to use when uploading. A minimum of 5MiB and maximum of 100MiB is enforced. (default 10)
-      --volsize uint               the maximum size (in MiB) a volume should be before splitting to a new volume. Note: zfsbackup will try its best to stay close/under this limit but it is not garaunteed. (default 200)
+      --volsize uint               the maximum size (in MiB) a volume should be before splitting to a new volume. Note: zfsbackup will try its best to stay close/under this limit but it is not guaranteed. (default 200)
 
 Global Flags:
       --encryptTo string           the email of the user to encrypt the data to from the provided public keyring.

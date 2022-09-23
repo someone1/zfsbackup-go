@@ -32,9 +32,7 @@ import (
 	"github.com/someone1/zfsbackup-go/log"
 )
 
-var (
-	disallowedSeps = regexp.MustCompile(`^[\w\-:\.]+`) // Disallowed by ZFS
-)
+var disallowedSeps = regexp.MustCompile(`^[\w\-:\.]+`) // Disallowed by ZFS
 
 // JobInfo represents the relevant information for a job that can be used to read
 // in details of that job at a later time.
@@ -137,6 +135,7 @@ func (j *JobInfo) String() string {
 		output,
 		fmt.Sprintf("Replication: %v", j.Replication),
 		fmt.Sprintf("SkipMissing: %v", j.SkipMissing),
+		fmt.Sprintf("Raw: %v", j.Raw),
 		fmt.Sprintf("Archives: %d - %d bytes (%s)", len(j.Volumes), totalWrittenBytes, humanize.IBytes(totalWrittenBytes)),
 		fmt.Sprintf("Volume Size (Raw): %d bytes (%s)", j.ZFSStreamBytes, humanize.IBytes(j.ZFSStreamBytes)),
 		fmt.Sprintf("Uploaded: %v (took %v)\n\n", j.StartTime, j.EndTime.Sub(j.StartTime)),
