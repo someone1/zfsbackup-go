@@ -56,6 +56,7 @@ type JobInfo struct {
 	EncryptTo               string
 	SignFrom                string
 	Replication             bool
+	SkipMissing             bool
 	Deduplication           bool
 	Properties              bool
 	IntermediaryIncremental bool
@@ -135,6 +136,7 @@ func (j *JobInfo) String() string {
 	output = append(
 		output,
 		fmt.Sprintf("Replication: %v", j.Replication),
+		fmt.Sprintf("SkipMissing: %v", j.SkipMissing),
 		fmt.Sprintf("Archives: %d - %d bytes (%s)", len(j.Volumes), totalWrittenBytes, humanize.IBytes(totalWrittenBytes)),
 		fmt.Sprintf("Volume Size (Raw): %d bytes (%s)", j.ZFSStreamBytes, humanize.IBytes(j.ZFSStreamBytes)),
 		fmt.Sprintf("Uploaded: %v (took %v)\n\n", j.StartTime, j.EndTime.Sub(j.StartTime)),

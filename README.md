@@ -200,6 +200,7 @@ Flags:
   -R, --replication                See the -R flag on zfs send for more information
       --resume                     set this flag to true when you want to try and resume a previously cancled or failed backup. It is up to the caller to ensure the same command line arguments are provided between the original backup and the resumed one.
       --separator string           the separator to use between object component names. (default "|")
+  -s, --skip-missing               See the -s flag on zfs send for more information
       --uploadChunkSize int        the chunk size, in MiB, to use when uploading. A minimum of 5MiB and maximum of 100MiB is enforced. (default 10)
       --volsize uint               the maximum size (in MiB) a volume should be before splitting to a new volume. Note: zfsbackup will try its best to stay close/under this limit but it is not garaunteed. (default 200)
 
