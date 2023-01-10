@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	cloud.google.com/go/storage v1.27.0
-	github.com/Azure/azure-sdk-for-go v66.0.0+incompatible
+	github.com/Azure/azure-sdk-for-go v67.3.0+incompatible
 	github.com/Azure/azure-storage-blob-go v0.11.0
 	github.com/aws/aws-sdk-go v1.44.104
 	github.com/cenkalti/backoff v2.2.1+incompatible
