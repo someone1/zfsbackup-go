@@ -416,7 +416,7 @@ func Backup(pctx context.Context, jobInfo *files.JobInfo) error {
 	} else {
 		fmt.Fprintf(
 			config.Stdout,
-			"Done.\n\tTotal ZFS Stream Bytes: %d (%s)\n\tTotal Bytes Written: %d (%s)\n\tElapsed Time: %v\n\tTotal Files Uploaded: %d",
+			"Done.\n\tTotal ZFS Stream Bytes: %d (%s)\n\tTotal Bytes Written: %d (%s)\n\tElapsed Time: %v\n\tTotal Files Uploaded: %d\n",
 			jobInfo.ZFSStreamBytes,
 			humanize.IBytes(jobInfo.ZFSStreamBytes),
 			totalWrittenBytes,
