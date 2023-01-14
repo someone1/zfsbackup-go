@@ -94,7 +94,7 @@ func (f *FileBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 	_, err = io.Copy(w, vol)
 	if err != nil {
 		if closeErr := w.Close(); closeErr != nil {
-			log.AppLogger.Warningf("file backend: Error closing volume %s - %v", vol.ObjectName, err)
+			log.AppLogger.Warningf("file backend: Error closing volume %s - %v", vol.ObjectName, closeErr)
 		}
 		if deleteErr := os.Remove(destinationPath); deleteErr != nil {
 			log.AppLogger.Warningf("file backend: Error deleting failed upload file %s - %v", destinationPath, deleteErr)
