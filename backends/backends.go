@@ -84,6 +84,8 @@ func GetBackendForURI(uri string) (Backend, error) {
 		return &AzureBackend{}, nil
 	case B2BackendPrefix:
 		return &B2Backend{}, nil
+	case SSHBackendPrefix:
+		return &SSHBackend{}, nil
 	default:
 		return nil, ErrInvalidPrefix
 	}
