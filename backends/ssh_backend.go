@@ -20,8 +20,10 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
+// SSHBackendPrefix is the URI prefix used for the SSHBackend.
 const SSHBackendPrefix = "ssh"
 
+// SSHBackend provides a ssh/sftp storage option.
 type SSHBackend struct {
 	conf       *BackendConfig
 	sshClient  *ssh.Client
@@ -29,6 +31,8 @@ type SSHBackend struct {
 	remotePath string
 }
 
+// buildSshSigner reads the private key file at privateKeyPath and transforms it into a ssh.Signer,
+// using password to decrypt the key if required.
 func buildSshSigner(privateKeyPath string, password string) (ssh.Signer, error) {
 	privateKey, err := os.ReadFile(privateKeyPath)
 	if err != nil {
@@ -44,6 +48,9 @@ func buildSshSigner(privateKeyPath string, password string) (ssh.Signer, error) 
 	return signer, err
 }
 
+// buildAuthMethods builds ssh auth methods based on the provided password and private keys in the the users home directory.
+// To use a specific key instead of the default files set the env variable SSH_KEY_FILE.
+// buildAuthMethods also adds ssh-agent auth if the env variable SSH_AUTH_SOCK exists.
 func buildAuthMethods(userHomeDir string, password string) (sshAuths []ssh.AuthMethod, err error) {
 	sshAuthSock := os.Getenv("SSH_AUTH_SOCK")
 	if sshAuthSock != "" {
@@ -95,6 +102,9 @@ func buildAuthMethods(userHomeDir string, password string) (sshAuths []ssh.AuthM
 	return sshAuths, nil
 }
 
+// buildHostKeyCallback builds a ssh.HostKeyCallback that uses the known_hosts file from the users home directory.
+// Or from a custom file specified by the SSH_KNOWN_HOSTS env variable.
+// If SSH_KNOWN_HOSTS is set to "ignore" host key checking is disabled.
 func buildHostKeyCallback(userHomeDir string) (callback ssh.HostKeyCallback, err error) {
 	knownHostsFile := os.Getenv("SSH_KNOWN_HOSTS")
 	if knownHostsFile == "" {
@@ -108,6 +118,7 @@ func buildHostKeyCallback(userHomeDir string) (callback ssh.HostKeyCallback, err
 	return callback, err
 }
 
+// Init will initialize the SSHBackend and verify the provided URI is valid and the target directory exists.
 func (s *SSHBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Option) (err error) {
 	s.conf = conf
 
@@ -193,6 +204,7 @@ func (s *SSHBackend) Init(ctx context.Context, conf *BackendConfig, opts ...Opti
 	return nil
 }
 
+// Upload will upload the provided VolumeInfo to the remote sftp server.
 func (s *SSHBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 	s.conf.MaxParallelUploadBuffer <- true
 	defer func() {
@@ -228,6 +240,7 @@ func (s *SSHBackend) Upload(ctx context.Context, vol *files.VolumeInfo) error {
 	return w.Close()
 }
 
+// List will return a list of all files matching the provided prefix.
 func (s *SSHBackend) List(ctx context.Context, prefix string) ([]string, error) {
 	l := make([]string, 0, 1000)
 
@@ -246,6 +259,7 @@ func (s *SSHBackend) List(ctx context.Context, prefix string) ([]string, error) 
 	return l, nil
 }
 
+// Close will release any resources used by SSHBackend.
 func (s *SSHBackend) Close() (err error) {
 	if s.sftpClient != nil {
 		err = s.sftpClient.Close()
@@ -261,14 +275,17 @@ func (s *SSHBackend) Close() (err error) {
 	return err
 }
 
+// PreDownload does nothing on this backend.
 func (s *SSHBackend) PreDownload(ctx context.Context, objects []string) error {
 	return nil
 }
 
+// Download will open the remote file for reading.
 func (s *SSHBackend) Download(ctx context.Context, filename string) (io.ReadCloser, error) {
 	return s.sftpClient.Open(filepath.Join(s.remotePath, filename))
 }
 
+// Delete will delete the given object from the provided path.
 func (s *SSHBackend) Delete(ctx context.Context, filename string) error {
 	return s.sftpClient.Remove(filepath.Join(s.remotePath, filename))
 }
