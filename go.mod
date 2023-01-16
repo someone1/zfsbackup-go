@@ -8,7 +8,7 @@ require (
 	github.com/Azure/azure-storage-blob-go v0.11.0
 	github.com/aws/aws-sdk-go v1.44.104
 	github.com/cenkalti/backoff v2.2.1+incompatible
-	github.com/dustin/go-humanize v1.0.0
+	github.com/dustin/go-humanize v1.0.1
 	github.com/juju/ratelimit v1.0.2
 	github.com/klauspost/pgzip v1.2.5
 	github.com/kurin/blazer v0.5.3
