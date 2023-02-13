@@ -148,7 +148,7 @@ func GetZFSSendCommand(ctx context.Context, j *files.JobInfo) *exec.Cmd {
 	if j.IncrementalSnapshot.Name != "" {
 		incrementalName := j.IncrementalSnapshot.Name
 		if j.IncrementalSnapshot.Bookmark {
-			incrementalName = fmt.Sprintf("%s#%s", j.VolumeName, incrementalName)
+			incrementalName = fmt.Sprintf("%s#%s", GetLocalVolumeName(j), incrementalName)
 		}
 
 		if j.IntermediaryIncremental {
@@ -160,7 +160,7 @@ func GetZFSSendCommand(ctx context.Context, j *files.JobInfo) *exec.Cmd {
 		}
 	}
 
-	zfsArgs = append(zfsArgs, fmt.Sprintf("%s@%s", j.VolumeName, j.BaseSnapshot.Name))
+	zfsArgs = append(zfsArgs, fmt.Sprintf("%s@%s", GetLocalVolumeName(j), j.BaseSnapshot.Name))
 	cmd := exec.CommandContext(ctx, ZFSPath, zfsArgs...)
 
 	return cmd
@@ -196,8 +196,16 @@ func GetZFSReceiveCommand(ctx context.Context, j *files.JobInfo) *exec.Cmd {
 		zfsArgs = append(zfsArgs, "-o", "origin="+j.Origin)
 	}
 
-	zfsArgs = append(zfsArgs, j.LocalVolume)
+	zfsArgs = append(zfsArgs, GetLocalVolumeName(j))
 	cmd := exec.CommandContext(ctx, ZFSPath, zfsArgs...)
 
 	return cmd
+}
+
+func GetLocalVolumeName(j *files.JobInfo) string {
+	if j.LocalVolume != "" {
+		return j.LocalVolume
+	} else {
+		return j.VolumeName
+	}
 }
