@@ -37,6 +37,12 @@ This project was inspired by the [duplicity project](http://duplicity.nongnu.org
   - Auth: Set the B2_ACCOUNT_ID and B2_ACCOUNT_KEY environmental variables to the appropiate values
   - [99.999999999% durability](https://help.backblaze.com/hc/en-us/articles/218485257-B2-Resiliency-Durability-and-Availability) - Using the Reed-Solomon erasure encoding
 - Local file path (file://[relative|/absolute]/local/path)
+- SSH/SFTP (ssh://)
+  - Auth: username & password, public key or ssh-agent.
+  - For username & password set the SSH_USERNAME and SSH_PASSWORD environment variables or use the url format: `ssh://username:password@example.org/remote/path`.
+  - For public key auth set the SSH_KEY_FILE environment variable. By default zfsbackup tries to use common key names from the users home directory.  
+  - ssh-agent auth is activated when SSH_AUTH_SOCK exists.
+  - By default zfsbackup also uses the known hosts file from the users home directory. To disable host key checking set SSH_KNOWN_HOSTS to `ignore`. You can also specify the path to your own known hosts file.
 
 ### Compression
 
@@ -224,7 +230,7 @@ Global Flags:
 - Make PGP cipher configurable.
 - Refactor
 - Test Coverage
-- Add more backends (e.g. SSH, SCP, etc.)
+- Add more backends
 - Add delete feature
 - Appease linters
 - Track intermediary snaps as part of backup jobs
