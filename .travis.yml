@@ -23,8 +23,8 @@ env:
     - AWS_SECRET_ACCESS_KEY=minioadmin
     - GCS_FAKE_SERVER="https://localhost:4443"
   matrix:
-    - rel=0.7.13
-    # - rel=0.8.3 # some feature preventing zpool creation (encryption)?
+    #- rel=0.7.13
+    - rel=0.8.3 # some feature preventing zpool creation (encryption)?
 
 before_install:
   - export MAKEFLAGS=-j$(($(grep -c '^processor' /proc/cpuinfo) * 2 + 1))
