@@ -17,7 +17,7 @@ require (
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	github.com/pkg/errors v0.9.1
 	github.com/pkg/sftp v1.13.5
-	github.com/spf13/cobra v1.5.0
+	github.com/spf13/cobra v1.6.1
 	golang.org/x/crypto v0.0.0-20220919173607-35f4265a4bc0
 	golang.org/x/sync v0.0.0-20220907140024-f12130a52804
 	google.golang.org/api v0.97.0
